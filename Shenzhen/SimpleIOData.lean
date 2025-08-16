@@ -1,19 +1,19 @@
 import Shenzhen.Integer
 
-structure IOData where
+structure SimpleIOData where
   n : UInt8
   le : n ≤ 100 := by decide
 
-instance : Inhabited IOData :=
+instance : Inhabited SimpleIOData :=
   ⟨{ n := 0 }⟩
 
-instance : Coe IOData UInt8 :=
+instance : Coe SimpleIOData UInt8 :=
   ⟨(·.n)⟩
 
-instance instOfNatIOData : OfNat IOData n where
+instance instOfNatSimpleIOData : OfNat SimpleIOData n where
   ofNat :=
     if h : n.toUInt8 ≤ 100 then { n := n.toUInt8, le := h }
-    else panic! "In `instOfNatIOData`: argument is not ≤ 100!"
+    else panic! "In `instOfNatSimpleIOData`: argument is not ≤ 100!"
 
 theorem UInt8.bitVec_not_msb_iff {n : UInt8} : n.toBitVec.msb = false ↔ n < 128 := by
   rw [BitVec.msb_eq_false_iff_two_mul_lt, toNat_toBitVec]
@@ -31,7 +31,7 @@ theorem UInt8.toInt8_le {a b : UInt8} (ha : a < 128) (hb : b < 128) : a.toInt8 �
       BitVec.toInt_eq_toNat_of_lt (this hb)]
   rw [Int.ofNat_le]
 
-def IOData.toInteger : IOData → Integer
+def SimpleIOData.toInteger : SimpleIOData → Integer
 | ⟨n, le⟩ =>
   have : n < 128 := UInt8.lt_of_le_of_lt le (by decide)
   have pf₁ := by
@@ -46,5 +46,5 @@ def IOData.toInteger : IOData → Integer
     apply UInt8.zero_le
   ⟨n.toInt8.toInt16, pf₁, pf₂⟩
 
-instance : Coe IOData Integer :=
-  ⟨IOData.toInteger⟩
+instance : Coe SimpleIOData Integer :=
+  ⟨SimpleIOData.toInteger⟩
