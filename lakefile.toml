@@ -1,0 +1,10 @@
+name = "shenzhen"
+version = "0.1.0"
+defaultTargets = ["shenzhen"]
+
+[[lean_lib]]
+name = "Shenzhen"
+
+[[lean_exe]]
+name = "shenzhen"
+root = "Main"
