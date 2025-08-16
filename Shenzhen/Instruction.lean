@@ -2,13 +2,10 @@ import Shenzhen.Integer
 
 universe u v w x
 
-inductive Condition
-| pos | neg
-| none -- none is the initial state. Neither + nor - lines will be activated in this state
+structure ConditionalState where
+  posEnabled : Bool
+  negEnabled : Bool
 deriving Repr
-
--- instance : ToString Condition where
---   toString | .pos => ".pos" | .neg => ".neg" | .none => ".none"
 
 inductive Instruction.Reg (ρ : Type v) (ξ : Type w) (ι : Type x)
 /-- An internal chip register, like `acc` or `dat`. -/

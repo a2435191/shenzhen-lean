@@ -1,6 +1,6 @@
 import Shenzhen.Integer
+import Shenzhen.SimpleIOData
 import Shenzhen.Instruction
-import Shenzhen.IOData
 
 namespace MC4000
 
@@ -36,7 +36,7 @@ deriving Repr
 
 structure State (numInstr : Nat) where
   acc : Integer
-  cond : Condition
+  cond : ConditionalState
   ip : Fin numInstr
   ioPinModes : Vector IOPinMode numSimpleIOPins
   sleep : Sleep XBus
@@ -46,7 +46,7 @@ namespace State
 
 def init (m) [NeZero m] : State m :=
   { acc := 0,
-    cond := .none,
+    cond := ⟨false, false⟩,
     ip := 0,
     ioPinModes := #v[.input, .input],
     sleep := .slp 0 }
@@ -58,10 +58,11 @@ instance [NeZero m] : Inhabited (State m) :=
 def modifyAcc (state : State m) (f : Integer → Integer → Integer) (other : Integer) :=
   { state with acc := f state.acc other }
 
-/-- Set the `cond` internal register to be `pos` if `b` is `true` and `neg` otherwise. -/
+/-- Enable `pos` and disable `neg` instructions if `b` holds.
+  Otherwise, disable `pos` and enable `neg` instructions. -/
 @[inline]
 def setCondIff (state : State m) (b : Bool) :=
-  { state with cond := if b then .pos else .neg }
+  { state with cond := ⟨b, !b⟩ }
 
 @[inline]
 def incrementIp (state : State m) :=
@@ -95,7 +96,7 @@ inductive PinStateM (ψ : Type u) (δ : Type v) (α : Type w)
 | pure : α → PinStateM ψ δ α
 /-- `write pin d` represents some data `d` being written to
   pin `pin`. Note that `write` is a terminal action, so TODO -/
-| write (pin : ψ) (d : δ) --(next : α)
+| write (pin : ψ) (d : δ)
 /-- `read pin next` represents a computation delayed until a value `d`
   from pin `pin` can be read; then `next d` is the result of the computation. -/
 | read (pin : ψ) (next : δ → PinStateM ψ δ α)
@@ -140,25 +141,24 @@ where
 
 end PinStateM
 
-inductive MC4000.Pin
-| xbus : MC4000.XBus → MC4000.Pin
-| simpleIO : SimpleIO → MC4000.Pin
-
 @[reducible] def MC4000.XBusPinStateM := PinStateM XBus Integer
+structure MC4000.SimpleIOPinStateM (ι : Type u) (δ : Type v) (α : Type w) where
+-- TODO
 
 open MC4000 in
 def doInstruction (instr : Instruction (Fin m) InternalReg XBus SimpleIO)
-    (state : State m) : XBusPinStateM (State m) :=
+    (state : State m) (currentSimpleIOPinValues : Vector SimpleIOData numSimpleIOPins) : XBusPinStateM (State m) :=
   have : NeZero m := ⟨fun hn => Fin.elim0 (hn ▸ state.ip)⟩
 
   let notYetImplemented! {π} [Inhabited π] : π :=
     panic! s!"{repr instr} not yet implemented in `doInstruction`"
 
-  let readRI ri := match ri with
+  -- TODO: put the pin modes part in a monad
+  let readRI ri : XBusPinStateM Integer := match ri with
     | .int k => pure k
     | .reg .null => pure 0
     | .reg (.internal .acc) => pure state.acc
-    | .reg (.io _) => notYetImplemented! -- TODO
+    | .reg (.io pin) => pure currentSimpleIOPinValues[pin] -- TODO : also set pin mode here
     | .reg (.xbus pin) => .read pin pure
 
   match instr with
@@ -169,7 +169,7 @@ def doInstruction (instr : Instruction (Fin m) InternalReg XBus SimpleIO)
     match r with
     | .null => return state
     | .internal .acc => return { state with acc := x }
-    | .io pin => return state.setIOPinMode
+    | .io pin => notYetImplemented!
     | .xbus pin => .write pin x
   | .jmp l =>
     return { state with ip := l }
@@ -189,4 +189,5 @@ def doInstruction (instr : Instruction (Fin m) InternalReg XBus SimpleIO)
   let y := doInstruction
     (.mov (.reg (.xbus 1)) (.xbus 0))
     { MC4000.State.init 3 with }
+    #v[0, 0]
   y
