@@ -1,31 +1,44 @@
 import Shenzhen.Integer
 
-universe u v w x
-
 structure ConditionalState where
   posEnabled : Bool
   negEnabled : Bool
 deriving Repr
 
-inductive Instruction.Reg (ρ : Type v) (ξ : Type w) (ι : Type x)
+inductive Pin (ξ : Type u) (ι : Type v)
+| xBus (pin : ξ) | simpleIO (pin : ι)
+deriving Repr
+
+namespace Instruction
+
+inductive Reg (ρ : Type v) (ξ : Type w) (ι : Type x)
 /-- An internal chip register, like `acc` or `dat`. -/
 | internal : ρ → Reg ..
-/-- An `XBus` pin register. -/
-| xbus : ξ → Reg ..
-/-- An `I/O` pin register. -/
-| io : ι → Reg ..
+/-- An XBus pin register. -/
+| xBus : ξ → Reg ..
+/-- A simple I/O pin register. -/
+| simpleIO : ι → Reg ..
 /-- The `null` pseudo-register. -/
 | null
 deriving Repr
 
-inductive Instruction.RegOrInt (ρ : Type v) (ξ : Type w) (ι : Type x)
+@[inline] def Reg.pin? : Reg ρ ξ ι → Option (Pin ξ ι)
+| .xBus i => some (.xBus i)
+| .simpleIO i => some (.simpleIO i)
+| .null | .internal _ => none
+
+inductive RegOrInt (ρ : Type v) (ξ : Type w) (ι : Type x)
 /-- A reference to a register. -/
 | reg : Reg ρ ξ ι → RegOrInt ..
 /-- An integer literal. -/
 | int : Integer → RegOrInt ..
 deriving Repr
 
-namespace Instruction.Notation
+@[inline] def RegOrInt.pin? : RegOrInt ρ ξ ι → Option (Pin ξ ι)
+| .reg r => r.pin?
+| .int _ => none
+
+namespace Notation
 
 /-! Notation to make writing `Instruction` easier. -/
 
@@ -62,5 +75,5 @@ inductive Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x)
 | tlt : R/I → R/I → Instruction ..
 | tcp : R/I → R/I → Instruction ..
 -- Undocumented instruction
-| gen : ι → R/I → R/I → Instruction ..
+-- | gen : ι → R/I → R/I → Instruction .. -- TODO: add this back in
 deriving Inhabited, Repr
