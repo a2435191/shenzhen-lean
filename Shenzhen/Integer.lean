@@ -1,11 +1,32 @@
+import Shenzhen.Clamp
+
+import Lean.Elab.Command
+import Lean.ToExpr
+
 structure Integer where
   n : Int16
   le : n ≤ 999 := by decide
   ge : -999 ≤ n := by decide
 deriving DecidableEq, BEq
 
+open Lean in
+instance : ToExpr Integer where
+  toTypeExpr := mkConst ``Integer
+  toExpr
+  | { n, le, ge } =>
+    mkApp3 (mkConst ``Integer.mk)
+      (toExpr n) (mkConst `TODO) (mkConst `TODO) -- TODO : fix lol
+
+-- example : 2 ≤ 999 :=
+--   @of_decide_eq_true (2 ≤ 999) (@Nat.decLe 2 999) (@Eq.refl.{1} Bool true)
+
+#eval Integer.mk 0
+
 instance : Repr Integer :=
-  ⟨fun { n, .. } i => reprPrec n i⟩
+  ⟨(reprPrec ·.n)⟩
+
+instance : ReprAtom Integer :=
+  ⟨⟩
 
 instance : Inhabited Integer :=
   ⟨{ n := 0 }⟩
@@ -24,13 +45,9 @@ instance instOfNatInteger : OfNat Integer n where
 to `[-999, 999]`. -/
 @[inline]
 private def Integer.liftOp (f : Int16 → Int16 → Int16) : Integer → Integer → Integer
-| ⟨a, _, _⟩, ⟨b, _, _⟩ =>
-  let res := f a b
-  let clamped :=
-    if res < -999 then -999 else if res > 999 then 999 else res
-  ⟨clamped,
-    by unfold clamped; repeat' split; all_goals simp_all,
-    by unfold clamped; repeat' split; all_goals simp_all⟩
+| ⟨a, _, _⟩, ⟨b, _, _⟩ => ⟨
+  clamp (f a b) (-999) 999,
+  clamp_le_hi (by decide), lo_le_clamp (by decide)⟩
 
 instance : Add Integer := ⟨Integer.liftOp Int16.add⟩
 instance : Sub Integer := ⟨Integer.liftOp Int16.sub⟩
@@ -96,7 +113,7 @@ theorem Int16.neg_le_neg_iff {a b : Int16} (ha : a ≠ .minValue) (hb : b ≠ .m
   simp
 
 /-- `dgt` stands for "digit get." It preserves sign. -/
-def dgt (acc target : Integer) : Integer :=
+def Integer.dgt (acc target : Integer) : Integer :=
   have h₁ {n : Int16} : n % 10 ≤ 999 :=
     Int16.le_of_lt (Int16.lt_of_lt_of_le (Int16.mod_lt_of_pos n (by decide)) (by decide))
   have h₂ {n : Int16} : -999 ≤ n % 10 :=
@@ -109,7 +126,7 @@ def dgt (acc target : Integer) : Integer :=
   | _ => 0
 
 -- /-- `dst` stands for "digit set" -/
--- def dst (acc target new : Integer) : Integer :=
+-- def Integer.dst (acc target new : Integer) : Integer :=
 --   -- In case `new` is outside [-9, 9]
 --   let newDigit := new.n % 10 -- with the same sign as `new`
 --   -- TODO

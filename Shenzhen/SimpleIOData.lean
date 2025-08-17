@@ -1,8 +1,26 @@
 import Shenzhen.Integer
+import Shenzhen.Clamp
+
+import Lean.Elab.Command
+import Lean.ToExpr
 
 structure SimpleIOData where
   n : UInt8
   le : n ≤ 100 := by decide
+
+open Lean in
+instance : ToExpr SimpleIOData where
+  toTypeExpr := mkConst ``SimpleIOData
+  toExpr
+  | { n, le } =>
+    mkApp2 (mkConst ``SimpleIOData.mk)
+      (toExpr n) (mkConst `TODO) -- TODO : fix lol
+
+instance : Repr SimpleIOData :=
+  ⟨(reprPrec ·.n ·)⟩
+
+instance : ReprAtom SimpleIOData :=
+  ⟨⟩
 
 instance : Inhabited SimpleIOData :=
   ⟨{ n := 0 }⟩
@@ -48,3 +66,16 @@ def SimpleIOData.toInteger : SimpleIOData → Integer
 
 instance : Coe SimpleIOData Integer :=
   ⟨SimpleIOData.toInteger⟩
+
+def Integer.toSimpleIOData : Integer → SimpleIOData
+| { n, .. } =>
+  let n' := clamp n 0 100
+  ⟨n'.toUInt16.toUInt8, by
+    rw [show (100 : UInt8) = (100 : UInt16).toUInt8 by decide]
+    apply UInt16.toUInt8_le.mpr
+    apply UInt16.le_trans (b := n'.toUInt16)
+    · rw [UInt16.le_iff_toNat_le, UInt16.toNat_mod]
+      apply Nat.mod_le
+    · apply Int16.toUInt16_le
+      · exact lo_le_clamp (by decide)
+      · exact clamp_le_hi (by decide)⟩

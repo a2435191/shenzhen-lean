@@ -26,3 +26,10 @@ theorem lo_le_clamp (h : lo ≤ hi) : lo ≤ clamp x lo hi := by
     · have := Std.Total.total (r := (· ≤ ·)) lo x
       apply this.resolve_right
       assumption
+
+/-! Instances for use with `Integer` and `SimpleIOData` -/
+instance : @Std.Refl Int16 LE.le :=
+  ⟨Int16.le_refl⟩
+
+instance : @Std.Total Int16 LE.le where
+  total a b := (Int16.le_or_lt a b).imp_right Int16.le_of_lt
