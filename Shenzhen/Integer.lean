@@ -1,26 +1,10 @@
 import Shenzhen.Clamp
 
-import Lean.Elab.Command
-import Lean.ToExpr
-
 structure Integer where
   n : Int16
   le : n ≤ 999 := by decide
   ge : -999 ≤ n := by decide
 deriving DecidableEq, BEq
-
-open Lean in
-instance : ToExpr Integer where
-  toTypeExpr := mkConst ``Integer
-  toExpr
-  | { n, le, ge } =>
-    mkApp3 (mkConst ``Integer.mk)
-      (toExpr n) (mkConst `TODO) (mkConst `TODO) -- TODO : fix lol
-
--- example : 2 ≤ 999 :=
---   @of_decide_eq_true (2 ≤ 999) (@Nat.decLe 2 999) (@Eq.refl.{1} Bool true)
-
-#eval Integer.mk 0
 
 instance : Repr Integer :=
   ⟨(reprPrec ·.n)⟩

@@ -1,20 +1,9 @@
 import Shenzhen.Integer
 import Shenzhen.Clamp
 
-import Lean.Elab.Command
-import Lean.ToExpr
-
 structure SimpleIOData where
   n : UInt8
   le : n ≤ 100 := by decide
-
-open Lean in
-instance : ToExpr SimpleIOData where
-  toTypeExpr := mkConst ``SimpleIOData
-  toExpr
-  | { n, le } =>
-    mkApp2 (mkConst ``SimpleIOData.mk)
-      (toExpr n) (mkConst `TODO) -- TODO : fix lol
 
 instance : Repr SimpleIOData :=
   ⟨(reprPrec ·.n ·)⟩

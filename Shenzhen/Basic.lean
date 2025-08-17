@@ -2,9 +2,6 @@ import Shenzhen.Integer
 import Shenzhen.SimpleIOData
 import Shenzhen.Instruction
 
-import Lean.Elab.Command
-import Lean.ToExpr
-
 namespace MC4000
 
 @[reducible] def numXBusPins := 2
@@ -82,8 +79,6 @@ structure Board where
   ioConns : Fin numChips → SimpleIO → Array (Fin numChips × SimpleIO)
   xBusConns : Fin numChips → MC4000.XBus → Array (Fin numChips × MC4000.XBus)
 
-
-
 /-- `PinStateM` wraps values of type `α` in a monad that
   records pin read and write actions within a chip with XBus and simple IO pins.
   - `ξ` is the type of *X*Bus pins.
@@ -138,45 +133,10 @@ where
         apply id_map
 end PinStateM
 
+@[reducible] def MC4000.PinStateM :=
+  _root_.PinStateM XBus SimpleIO Integer SimpleIOData
 
--- set_option linter.unusedVariables false in
--- open Lean in
--- instance instToExprPinStateM.{u, v, w, x, y}
---     {ξ : Type u} {ι : Type v} {δ : Type w} {ε : Type x} {α : Type y}
---     [ToExpr ξ] [ToExpr ι] [ToExpr δ] [ToExpr ε] [ToExpr α]
---     [ToLevel.{u}] [ToLevel.{v}] [ToLevel.{w}] [ToLevel.{x}] [ToLevel.{y}]
---     : ToExpr (PinStateM ξ ι δ ε α) where
---   toTypeExpr := mkConst ``PinStateM levels
---   toExpr := go
--- where
---   levels := [toLevel.{u}, toLevel.{v}, toLevel.{w}, toLevel.{x}, toLevel.{y}]
---   types := #[toTypeExpr ξ, toTypeExpr ι, toTypeExpr δ, toTypeExpr ε, toTypeExpr α]
---   mkCtor ctorName args :=
---     mkAppN (.const ctorName levels) (types ++ args)
---   go
---   | .pure a => mkCtor ``PinStateM.pure #[toExpr a]
---   | .writeXBus pin d => mkCtor ``PinStateM.writeXBus #[toExpr pin, toExpr d]
---   | .writeSimpleIO pin d => mkCtor ``PinStateM.writeSimpleIO #[toExpr pin, toExpr d]
---   | .readXBus pin next =>
---     let funExpr := sorry -- toExpr next
---     mkCtor ``PinStateM.readXBus #[toExpr pin, funExpr]
---   | .readSimpleIO pin next =>
---     let funExpr := Expr.fu -- toExpr next
---     mkCtor ``PinStateM.readSimpleIO #[toExpr pin, funExpr]
-
-@[reducible] def MC4000.XBusPinStateM :=
-  PinStateM XBus SimpleIO Integer SimpleIOData
-
-section
-open MC4000 Lean
-deriving instance ToExpr for XBus
-deriving instance ToExpr for SimpleIO
-deriving instance ToExpr for ConditionalState
-deriving instance ToExpr for Sleep
-deriving instance ToExpr for State
-end
-
-instance [Repr α] : Repr (MC4000.XBusPinStateM α) where
+instance [Repr α] : Repr (MC4000.PinStateM α) where
   reprPrec := go
 where go x : Nat → Std.Format := Repr.addAppParen <| .group <| .nestD <|
   match x with
@@ -192,13 +152,13 @@ where go x : Nat → Std.Format := Repr.addAppParen <| .group <| .nestD <|
 
 open MC4000 in
 def doInstruction (instr : Instruction (Fin m) InternalReg XBus SimpleIO)
-    (state : State m) : XBusPinStateM (State m) :=
+    (state : State m) : MC4000.PinStateM (State m) :=
   have : NeZero m := ⟨fun hn => Fin.elim0 (hn ▸ state.ip)⟩
 
   let notYetImplemented! {π} [Inhabited π] : π :=
     panic! s!"{repr instr} not yet implemented in `doInstruction`"
 
-  let readRI ri : XBusPinStateM Integer := match ri with
+  let readRI ri : MC4000.PinStateM Integer := match ri with
     | .int k => pure k
     | .reg .null => pure 0
     | .reg (.internal .acc) => pure state.acc
