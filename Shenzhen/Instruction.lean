@@ -77,3 +77,33 @@ inductive Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x)
 -- Undocumented instruction
 -- | gen : ι → R/I → R/I → Instruction .. -- TODO: add this back in
 deriving Inhabited, Repr
+
+/-- Count the maximum number of pins this instruction could read from/write to. -/
+@[reducible]
+def Instruction.numArgs : Instruction Λ ρ ξ ι → Nat
+| .nop | .jmp _ | .slx _ | .not => 0
+| .slp _ | .add _ | .sub _ | .mul _ | .dgt _ => 1
+| .mov .. | .dst .. | .teq .. | .tgt .. | .tlt .. | .tcp .. => 2
+
+@[inline]
+def Instruction.arg : (instr : Instruction Λ ρ ξ ι) → Fin instr.numArgs → RegOrInt ρ ξ ι
+| .nop | .jmp _ | .slx _ | .not =>
+  Fin.elim0
+| .slp x | .add x | .sub x | .mul x | .dgt x =>
+  fun | 0 => x
+| .dst x y | .teq x y | .tgt x y | .tlt x y | .tcp x y =>
+  fun | 0 => x
+      | 1 => y
+| .mov x y =>
+  fun | 0 => x
+      | 1 => .reg y
+
+@[reducible]
+def Instruction.FnType.{u}
+    (σ : Type u) (δ : Type u) {Λ : Type u} {ξ : Type u} {ρ : Type u} {ι : Type u} : Instruction Λ ρ ξ ι → Type u
+| .nop | .not => σ
+| .mov .. => δ → Reg ρ ξ ι → σ
+| .jmp .. => Λ → σ
+| .slx _ => ξ → σ
+| .slp _ | .add _ | .sub _ | .mul _ | .dgt _ => δ → σ
+| .dst .. | .teq .. | .tgt .. | .tlt .. | .tcp .. => δ → δ → σ

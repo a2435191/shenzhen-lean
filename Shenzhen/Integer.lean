@@ -109,12 +109,11 @@ def Integer.dgt (acc target : Integer) : Integer :=
   | ⟨2, _, _⟩ => ⟨(acc.n / 100) % 10, h₁, h₂⟩ -- TODO: remove unnecessary % 10 call. Requires work to show bounds
   | _ => 0
 
--- /-- `dst` stands for "digit set" -/
--- def Integer.dst (acc target new : Integer) : Integer :=
---   -- In case `new` is outside [-9, 9]
---   let newDigit := new.n % 10 -- with the same sign as `new`
---   -- TODO
---   sorry
+/-- `dst` stands for "digit set" -/
+def Integer.dst (acc target new : Integer) : Integer :=
+  -- In case `new` is outside [-9, 9]
+  let newDigit := new.n % 10 -- with the same sign as `new`
+  panic! "`dst` is unimplemented!" -- TODO
 
 -- Just for entering literals
 instance : Neg Integer where
