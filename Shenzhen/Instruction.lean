@@ -34,9 +34,27 @@ inductive RegOrInt (ρ : Type v) (ξ : Type w) (ι : Type x)
 | int : Integer → RegOrInt ..
 deriving Repr
 
-@[inline] def RegOrInt.pin? : RegOrInt ρ ξ ι → Option (Pin ξ ι)
+namespace RegOrInt
+
+@[inline] def pin? : RegOrInt ρ ξ ι → Option (Pin ξ ι)
 | .reg r => r.pin?
 | .int _ => none
+
+-- Some convenience constructors so I don't have to type `.reg (.internal .acc)` all the time
+
+@[macro_inline, match_pattern] def internal : ρ → RegOrInt ρ ξ ι :=
+  .reg ∘ .internal
+
+@[macro_inline] def xBus : ξ → RegOrInt ρ ξ ι :=
+  .reg ∘ .xBus
+
+@[macro_inline] def simpleIO : ι → RegOrInt ρ ξ ι :=
+  .reg ∘ .simpleIO
+
+@[macro_inline] def null : RegOrInt ρ ξ ι :=
+  .reg .null
+
+end RegOrInt
 
 namespace Notation
 
