@@ -42,7 +42,7 @@ namespace RegOrInt
 
 -- Some convenience constructors so I don't have to type `.reg (.internal .acc)` all the time
 
-@[macro_inline, match_pattern] def internal : ρ → RegOrInt ρ ξ ι :=
+@[macro_inline] def internal : ρ → RegOrInt ρ ξ ι :=
   .reg ∘ .internal
 
 @[macro_inline] def xBus : ξ → RegOrInt ρ ξ ι :=
