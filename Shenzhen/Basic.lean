@@ -57,9 +57,6 @@ def setCondIff (state : State m) (b : Bool) :=
 def incrementIp (state : State m) :=
   { state with ip := state.ip.succ' }
 
--- @[inline]
--- def setIOPinMode (state : State m) (i : Fin numSimpleIOPins) (mode : IOPinMode) :=
---   { state with ioPinModes := state.ioPinModes.set i mode }
 end State
 
 @[reducible]
@@ -81,7 +78,6 @@ structure Board where
   chips : Vector MC4000 numChips
   ioConns : Fin numChips → SimpleIO → Array (Fin numChips × MC4000.SimpleIO)
   xBusConns : Fin numChips → MC4000.XBus → Array (Fin numChips × MC4000.XBus)
-
 
 /-- `PinStateM` wraps values of type `α` in a monad that
   records pin read and write actions within a chip with XBus and simple IO pins.
@@ -105,14 +101,6 @@ inductive PinStateM (ξ : Type u) (ι : Type v) (δ : Type w) (ε : Type x) (α 
   from simple IO pin `pin` is known; then `next d` is the result of the computation. -/
 | readSimpleIO (pin : ι) (next : ε → PinStateM ξ ι δ ε α)
 deriving Inhabited
-
--- inductive PinStateM' (ξ : Type u) (ι : Type v) (δ : Type w) (ε : Type x) (α : Type y)
--- | pure : α → PinStateM' ξ ι δ ε α
--- | writeXBus (pin : ξ) (d : δ)
--- | writeSimpleIO (pin : ι) (d : ε)
--- | readXBus (pin : ξ) (next : δ → PinStateM' ξ ι δ ε α)
--- | readSimpleIO (pin : ι) (next : ε → PinStateM' ξ ι δ ε α)
--- deriving Inhabited
 
 namespace PinStateM
 def bind : PinStateM ξ ι δ ε α → (α → PinStateM ξ ι δ ε β) → PinStateM ξ ι δ ε β
@@ -147,33 +135,6 @@ end PinStateM
 
 @[reducible] def MC4000.PinStateM (m : Nat) :=
   _root_.PinStateM XBus SimpleIO (State m → Integer) (State m → SimpleIOData)
-
-def MC4000.Instruction.toFn {m} (instr : Instruction m) (state : State m) : instr.FnType (State m) Integer :=
-  let state := { state with ip :=
-    match instr with
-    | .jmp target => target
-    | _ => state.ip.succ' }
-  match instr with
-  -- Basic instructions
-  | .nop => state
-  | .mov .. => fun
-    | d, .internal .acc => { state with acc := d }
-    | _, _ => state
-  | .jmp _ => fun _ => state -- already set jump target above
-  | .slp _ => fun { n, .. } => { state with sleep := .slp n.toNatClampNeg }
-  | .slx _ => fun pin => { state with sleep := .slx pin }
-  -- Arithmetic instructions
-  | .add _ => state.modifyAcc Add.add
-  | .sub _ => state.modifyAcc Sub.sub
-  | .mul _ => state.modifyAcc Mul.mul
-  | .not => { state with acc := ~~~state.acc }
-  | .dgt _ => state.modifyAcc Integer.dgt
-  | .dst .. => ({ state with acc := Integer.dst state.acc · · })
-  -- Test instructions
-  | .teq .. => (state.setCondIff <| · == ·)
-  | .tgt .. => (state.setCondIff <| · > ·)
-  | .tlt .. => (state.setCondIff <| · < ·)
-  | .tcp .. => fun a b => { state with cond := ⟨a < b, a > b⟩ }
 
 open MC4000 in
 def instructionEffects {m} (instr : Instruction m) : PinStateM m (State m → State m) :=
