@@ -1,9 +1,14 @@
 import Shenzhen.Integer
 import Shenzhen.Clamp
+import Shenzhen.Fintype
+import Mathlib.Tactic.DeriveFintype
+
+deriving instance Fintype for UInt8
 
 structure SimpleIOData where
   n : UInt8
   le : n ≤ 100 := by decide
+deriving Fintype
 
 instance : Repr SimpleIOData :=
   ⟨(reprPrec ·.n ·)⟩

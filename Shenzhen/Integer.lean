@@ -1,10 +1,15 @@
 import Shenzhen.Clamp
+import Shenzhen.Fintype
+import Mathlib.Tactic.DeriveFintype
+
+deriving instance Fintype for UInt16
+deriving instance Fintype for Int16
 
 structure Integer where
   n : Int16
   le : n ≤ 999 := by decide
   ge : -999 ≤ n := by decide
-deriving DecidableEq, BEq
+deriving DecidableEq, BEq, Fintype
 
 instance : Repr Integer :=
   ⟨(reprPrec ·.n)⟩
@@ -117,9 +122,9 @@ def Integer.dgt (acc target : Integer) : Integer :=
   | _ => 0
 
 /-- `dst` stands for "digit set" -/
-def Integer.dst (acc target new : Integer) : Integer :=
+def Integer.dst (_acc _target _new : Integer) : Integer :=
   -- In case `new` is outside [-9, 9]
-  let newDigit := new.n % 10 -- with the same sign as `new`
+  -- let newDigit := new.n % 10 -- with the same sign as `new`
   panic! "`dst` is unimplemented!" -- TODO
 
 -- Just for entering literals

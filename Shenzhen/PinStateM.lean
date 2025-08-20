@@ -1,4 +1,5 @@
 import Shenzhen.Fintype
+import Mathlib.Data.Finset.Max
 
 /-- `PinStateM` wraps values of type `α` in a monad that
   records pin read actions within a chip with XBus and simple IO pins.
@@ -67,20 +68,14 @@ where
 @[simp] theorem isSimpleIO_map_eq {f : α → β} : isSimpleIO (f <$> p) = isSimpleIO p := by
   cases p <;> simp [Functor.map, bind]
 
-example : PinStateM Unit Unit Empty Empty Empty :=
-  .readSimpleIO () (nomatch ·)
-
-instance [Inhabited α] : Inhabited ({ p : PinStateM ξ ι δ ε α // !p.isSimpleIO }) :=
-  ⟨.pure Inhabited.default, rfl⟩
-
 def sizeOf' [instδ : Fintype δ] [instε : Fintype ε] : PinStateM ξ ι δ ε α → Nat
 | .pure _ => 1
 | .writeSimpleIO _ _ next | .writeXBus _ _ next =>
   1 + sizeOf' next
 | .readSimpleIO _ next =>
-  1 + (instε.elems |>.map (fun x => sizeOf' (next x)) |>.max? |>.getD 0)
+  1 + (instε.elems |>.image (fun x => sizeOf' (next x)) |> insert 0 |> Finset.max' (H := Finset.insert_nonempty ..))
 | .readXBus _ next =>
-  1 + (instδ.elems |>.map (fun x => sizeOf' (next x)) |>.max? |>.getD 0)
+  1 + (instδ.elems |>.image (fun x => sizeOf' (next x)) |> insert 0 |> Finset.max' (H := Finset.insert_nonempty ..))
 
 noncomputable instance instSizeOf' [instδ : Fintype δ] [instε : Fintype ε] : SizeOf (PinStateM ξ ι δ ε α) :=
   ⟨sizeOf'⟩

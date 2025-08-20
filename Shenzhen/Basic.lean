@@ -64,7 +64,7 @@ def setCondIff (state : State m) (b : Bool) :=
 
 @[inline]
 def nextInstr : Instruction m → State m → State m
-| .jmp to, state => { state with ip := to }
+| .jmp «to», state => { state with ip := «to» }
 | _, state => { state with ip := state.ip.succ' }
 
 end MC4000.State
@@ -83,13 +83,13 @@ variable (instrs : Array (CondFlag × _root_.Instruction Nat InternalReg XBus Si
 
 def mk'.jmpLabelsInBounds : Prop :=
   ∀ pair ∈ instrs, match pair with
-    | (_, .jmp to) => to < instrs.size
+    | (_, .jmp «to») => «to» < instrs.size
     | _ => True
 
 instance mk'.instDecidable_jmpLabelsInBounds : DecidablePred mk'.jmpLabelsInBounds :=
   fun instrs =>
     let b := instrs.all fun
-      | (_, .jmp to) => to < instrs.size
+      | (_, .jmp «to») => «to» < instrs.size
       | _ => true
     decidable_of_bool b <| by
       simp only [b, jmpLabelsInBounds, Array.all_iff_forall, Nat.zero_le, true_and, forall_self_imp]
@@ -106,7 +106,7 @@ def mk'
   let m := instrs.size
   let instrs' : Array (CondFlag × Instruction m) :=
     instrs.attach.map fun ⟨(f, i), h⟩ => Prod.mk f <| match i with
-      | .jmp to => .jmp ⟨to, hm₂ _ h⟩
+      | .jmp «to» => .jmp ⟨«to», hm₂ _ h⟩
       | .nop => .nop | .not => .not
       | .slp x => .slp x | .slx x => .slx x
       | .mov x y => .mov x y | .add x => .add x | .sub x => .sub x | .mul x => .mul x | .dgt x => .dgt x
@@ -233,15 +233,6 @@ def lightController : Board :=
     xBusConns := .mk' #[#[(1, 1), (2, 0)]]
   }
 
-open MC4000 in
-def advanceStep : Board → Board
-| { n, chips, simpleIOConns, xBusConns } =>
-  let effects : Array ((m : Nat) × PinStateM m (State m → State m)) :=
-    chips.toArray.map fun chip =>
-      let (_, instr) := chip.instrs[chip.state.ip]
-      ⟨chip.m, instructionEffects instr⟩
-  sorry
-
 /-- Resolve the XBus read or write at `states[i]` given `states` (one for each chip). Returns
 the result of reading/writing from `states[i]` given the context `iNeighbors`.
 If that operation blocks, returns `none`. Otherwise, returns the new `states[i]`
@@ -290,9 +281,12 @@ where
 termination_by state
 decreasing_by (
   · simp [sizeOf, PinStateM.sizeOf'_map, PinStateM.sizeOf']
-  · simp only [sizeOf, PinStateM.sizeOf'_map, PinStateM.sizeOf', Nat.lt_one_add_iff]
-    apply List.le_max?_getD_of_mem
-    apply List.mem_map_of_mem
+  · show sizeOf (onRead <$> next maxNeighbor) < sizeOf (PinStateM.readSimpleIO dstPin next)
+    simp only [sizeOf, PinStateM.sizeOf'_map, PinStateM.sizeOf', Nat.lt_one_add_iff]
+    apply Finset.le_max'
+    rw [Finset.mem_insert]
+    right
+    apply Finset.mem_image_of_mem
     apply Fintype.complete)
 
 @[specialize] def resolve [Max ε] [Zero ε] [Fintype δ] [Fintype ε] [BEq ξ]
@@ -329,6 +323,3 @@ open MC4000 in
   let states := currentInstrs.map fun ⟨m, instr⟩ => Sigma.mk m (instructionEffects instr)
   for x in currentInstrs do
     println! repr x.2
--- def ResolveResult.didStep : ResolveResult ξ ι δ ε α → Bool
--- | .resolved _ didStep => didStep
--- | .readXBusBlock .. | .writeXBusBlock .. => false
