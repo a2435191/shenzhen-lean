@@ -18,6 +18,13 @@ instance : Inhabited Integer :=
 instance : Coe Integer Int16 :=
   ⟨(·.n)⟩
 
+def Integer.ofInt (n : Int) (h₁ : n ≤ 999) (h₂ : -999 ≤ n) :=
+  have : Int16.ofInt n ≤ Int16.ofInt 999 ∧ Int16.ofInt (-999) ≤ Int16.ofInt n := by
+    constructor <;> (
+      apply (Int16.ofInt_le_iff_le ..).mpr
+      all_goals first | trivial | grind only)
+  Integer.mk (Int16.ofInt n) this.left this.right
+
 instance instOfNatInteger : OfNat Integer n where
   ofNat :=
     let n' := n.toInt16

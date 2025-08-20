@@ -17,9 +17,14 @@ instance : Inhabited SimpleIOData :=
 instance : Coe SimpleIOData UInt8 :=
   ⟨(·.n)⟩
 
+def SimpleIOData.ofNat (n : Nat) (h : n ≤ 100) :=
+  SimpleIOData.mk (UInt8.ofNat n) <| by
+    apply (UInt8.le_ofNat_iff (by decide)).mpr
+    rwa [UInt8.toNat_ofNat_of_lt' (by grind only)]
+
 instance instOfNatSimpleIOData : OfNat SimpleIOData n where
   ofNat :=
-    if h : n.toUInt8 ≤ 100 then { n := n.toUInt8, le := h }
+    if h : n ≤ 100 then .ofNat n h
     else panic! "In `instOfNatSimpleIOData`: argument is not ≤ 100!"
 
 theorem UInt8.bitVec_not_msb_iff {n : UInt8} : n.toBitVec.msb = false ↔ n < 128 := by
@@ -56,6 +61,7 @@ def SimpleIOData.toInteger : SimpleIOData → Integer
 instance : Coe SimpleIOData Integer :=
   ⟨SimpleIOData.toInteger⟩
 
+/-- Cast an `Integer` to `SimpleIOData` by clamping its value between `0` and `100`, inclusive. -/
 def Integer.toSimpleIOData : Integer → SimpleIOData
 | { n, .. } =>
   let n' := clamp n 0 100
