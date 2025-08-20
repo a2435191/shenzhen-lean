@@ -1,6 +1,8 @@
 import Shenzhen.Integer
 import Shenzhen.SimpleIOData
 import Shenzhen.Instruction
+import Shenzhen.Fintype
+import Shenzhen.PinStateM
 
 namespace MC4000
 
@@ -31,7 +33,12 @@ structure State (numInstr : Nat) where
   cond : ConditionalState
   ip : Fin numInstr
   sleep : Sleep XBus
+  simpleIOOut : Vector SimpleIOData numSimpleIOPins
 deriving Repr
+
+@[reducible]
+def Instruction (numInstr : Nat) :=
+  _root_.Instruction (Fin numInstr) InternalReg XBus SimpleIO
 
 namespace State
 
@@ -39,7 +46,8 @@ def init (m) [NeZero m] : State m :=
   { acc := 0,
     cond := ⟨false, false⟩,
     ip := 0,
-    sleep := .slp 0 }
+    sleep := .slp 0,
+    simpleIOOut := #v[0, 0] }
 
 instance [NeZero m] : Inhabited (State m) :=
   ⟨init m⟩
@@ -54,13 +62,12 @@ def modifyAcc (state : State m) (f : Integer → Integer → Integer) (other : I
 def setCondIff (state : State m) (b : Bool) :=
   { state with cond := ⟨b, !b⟩ }
 
-end State
+@[inline]
+def nextInstr : Instruction m → State m → State m
+| .jmp to, state => { state with ip := to }
+| _, state => { state with ip := state.ip.succ' }
 
-@[reducible]
-def Instruction (numInstr : Nat) :=
-  _root_.Instruction (Fin numInstr) InternalReg XBus SimpleIO
-
-end MC4000
+end MC4000.State
 
 open MC4000 in
 structure MC4000 where
@@ -109,66 +116,13 @@ def mk'
 
 end MC4000
 
-/-- `PinStateM` wraps values of type `α` in a monad that
-  records pin read actions within a chip with XBus and simple IO pins.
-  - `ξ` is the type of *X*Bus pins.
-  - `ι` is the type of simple *I*O pins.
-  - `δ` is the type of *d*ata read over XBus pins (probably `Integer`).
-  - `ε` is the type of data read over simple IO pins (probably `SimpleIOData`). -/
-inductive PinStateM (ξ : Type u) (ι : Type v) (δ : Type w) (ε : Type x) (α : Type y)
-/-- Wrap a value in `PinStateM` without signaling the need for a read or write. -/
-| pure : α → PinStateM ξ ι δ ε α
-/-- `writeXBus pin d` represents some data `d` being written to
-  XBus pin `pin`. Note that writing is a terminal action and does
-  not otherwise change the state, so there is no `α` argument. -/
-| writeXBus (pin : ξ) (d : δ)
-/-- `writeSimpleIO pin d` represents some data `d` being written to
-  simple IO pin `pin`. Note that writing is a terminal action and does
-  not otherwise change the state, so there is no `α` argument. -/
-| writeSimpleIO (pin : ι) (d : ε)
-/-- `readXBus pin next` represents a computation delayed until a value `d`
-  from XBus pin `pin` can be read; then `next d` is the result of the computation. -/
-| readXBus (pin : ξ) (next : δ → PinStateM ξ ι δ ε α)
-/-- `readSimpleIO pin next` represents a computation delayed until the value `d`
-  from simple IO pin `pin` is known; then `next d` is the result of the computation. -/
-| readSimpleIO (pin : ι) (next : ε → PinStateM ξ ι δ ε α)
-deriving Inhabited
-
-namespace PinStateM
-def bind : PinStateM ξ ι δ ε α → (α → PinStateM ξ ι δ ε β) → PinStateM ξ ι δ ε β
-| .pure a, f => f a
-| .writeXBus pin d, _ => .writeXBus pin d
-| .writeSimpleIO pin d, _ => .writeSimpleIO pin d
-| .readXBus pin next, f => .readXBus pin (fun d => bind (next d) f)
-| .readSimpleIO pin next, f => .readSimpleIO pin (fun d => bind (next d) f)
-
-instance : Monad (PinStateM ξ ι δ ε) where
-  pure := PinStateM.pure
-  bind := PinStateM.bind
-
-instance : LawfulMonad (PinStateM ξ ι δ ε) :=
-  .mk' _ (by intros; rfl) bind_assoc (id_map := id_map)
-where
-  bind_assoc {α β γ} (x : PinStateM ξ ι δ ε α) (f : α → PinStateM ξ ι δ ε β) (g : β → PinStateM ξ ι δ ε γ) := by
-    cases x
-    all_goals first
-      | rfl
-      | simp [Bind.bind, bind]
-        funext
-        apply bind_assoc
-  id_map {α} (x) := by
-    cases x
-    all_goals first
-      | rfl
-      | simp [Functor.map, bind]
-        funext d
-        apply id_map
-end PinStateM
-
 @[reducible] def MC4000.PinStateM (m : Nat) :=
   _root_.PinStateM XBus SimpleIO (State m → Integer) (State m → SimpleIOData)
 
 open MC4000 in
+/-- Get a function to the next state after executing `instr`, possibly with
+pin reads/a pin write.
+here. -/
 def instructionEffects {m} (instr : Instruction m) : PinStateM m (State m → State m) :=
   let readRI ri : MC4000.PinStateM m (State m → Integer) := match ri with
     | .int k => pure (fun _ => k)
@@ -186,18 +140,17 @@ def instructionEffects {m} (instr : Instruction m) : PinStateM m (State m → St
     let fb ← readRI ri₂
     return fun state => state.setCondIff (r (fa state) (fb state))
 
-  match instr with
+  (State.nextInstr instr ∘ ·) <$> match instr with
   -- Basic instructions
-  | .nop => pure id
+  | .nop => return id
   | .mov ri r => do
     let d ← readRI ri
     match r with
     | .null => return id
     | .internal .acc => return fun state => { state with acc := d state }
-    | .simpleIO pin => .writeSimpleIO pin (Integer.toSimpleIOData ∘ d)
-    | .xBus pin => .writeXBus pin d
-  | .jmp l =>
-    return ({ · with ip := l })
+    | .simpleIO pin => .writeSimpleIO pin (Integer.toSimpleIOData ∘ d) (pure id)
+    | .xBus pin => .writeXBus pin d (pure id)
+  | .jmp _ => return id -- `id` since we map it through `State.nextInstr` above
   | .slp ri => do
     let slpTime := Int16.toNatClampNeg ∘ Integer.n ∘ (←readRI ri)
     return fun state => { state with sleep := .slp (slpTime state)  }
@@ -279,3 +232,103 @@ def lightController : Board :=
     simpleIOConns := .mk' #[#[(0, 0), (1, 0)], #[(2, 1), (3, 1)]],
     xBusConns := .mk' #[#[(1, 1), (2, 0)]]
   }
+
+open MC4000 in
+def advanceStep : Board → Board
+| { n, chips, simpleIOConns, xBusConns } =>
+  let effects : Array ((m : Nat) × PinStateM m (State m → State m)) :=
+    chips.toArray.map fun chip =>
+      let (_, instr) := chip.instrs[chip.state.ip]
+      ⟨chip.m, instructionEffects instr⟩
+  sorry
+
+/-- Resolve the XBus read or write at `states[i]` given `states` (one for each chip). Returns
+the result of reading/writing from `states[i]` given the context `iNeighbors`.
+If that operation blocks, returns `none`. Otherwise, returns the new `states[i]`
+after reading/writing, the state corresponding to the complementary XBus pin after writing/reading,
+and the indices of both. Specifically, `(reader, readerIdx, writer, writerIdx)`. -/
+@[inline] private def resolveXBus [BEq ξ] (states : Vector (PinStateM ξ ι δ ε α) n)
+    (i : Fin n) (iNeighbors : Array (Fin n × ξ)) (h : states[i].isXBus)
+    : Option (PinStateM ξ ι δ ε α × Fin n × PinStateM ξ ι δ ε α × Fin n) :=
+  match h' : states[i] with
+  | .readSimpleIO .. | .writeSimpleIO .. | .pure _ => by exfalso; simp_all
+  | .readXBus dstPin next =>
+    let writer? := iNeighbors.firstM fun (j, pin) =>
+      match states[j] with
+      | .writeXBus srcPin d srcNext =>
+        if pin == srcPin then some (j, d, srcNext) else none
+      | _ => none
+    writer? <&> fun (j, d, srcNext) => (next d, i, srcNext, j)
+  | .writeXBus srcPin d next =>
+    let reader? := iNeighbors.firstM fun (j, pin) =>
+      match states[j] with
+      | .readXBus dstPin dstNext =>
+        if pin == dstPin then some (j, dstNext) else none
+      | _ => none
+    reader? <&> fun (j, dstNext) => (dstNext d, j, next, i)
+
+/-- Resolve the simple I/O read(s) or write(s) at `state`. If `state` is not `.writeSimpleIO ..` or `.readSimpleIO ..`, just
+returns `state`. The `neighborOutValues` are any values written by neighboring I/O pins
+**after the end of the previous timestep**. This ensures that all the I/O pins are updated at once within
+a timestep. `onWrite` and `onRead` are how the state should be transformed after a write and read,
+respectively. If `state` is composed of multiple simple I/O operations without any XBus operations in between, they will all be resolved. -/
+@[inline] def resolveSimpleIO {α : Type u} [Max ε] [Zero ε] [Fintype δ] [Fintype ε]
+    (state : PinStateM ξ ι δ ε α) (onWrite onRead : α → α)
+    (neighborOutValues : ι → Array ε) : { p : PinStateM ξ ι δ ε α // p.isSimpleIO = false } :=
+  go state
+where
+  -- We need to reference the two `Fintype` instances
+  -- to get the termination/decreasing proof to compile
+  @[inline] go [Fintype δ] [Fintype ε] state :=
+    match h : state with
+    | .readXBus .. | .writeXBus .. | .pure _ => ⟨state, h ▸ rfl⟩
+    | .writeSimpleIO _ _ next =>
+      go (onWrite <$> next)
+    | .readSimpleIO dstPin next =>
+      let maxNeighbor := (neighborOutValues dstPin).foldl max 0
+      go (onRead <$> next maxNeighbor)
+termination_by state
+decreasing_by (
+  · simp [sizeOf, PinStateM.sizeOf'_map, PinStateM.sizeOf']
+  · simp only [sizeOf, PinStateM.sizeOf'_map, PinStateM.sizeOf', Nat.lt_one_add_iff]
+    apply List.le_max?_getD_of_mem
+    apply List.mem_map_of_mem
+    apply Fintype.complete)
+
+@[specialize] def resolve [Max ε] [Zero ε] [Fintype δ] [Fintype ε] [BEq ξ]
+    (states : Vector (PinStateM ξ ι δ ε α) n)
+    (xBusNeighbors : Fin n → ξ → Array (Fin n × ξ)) (simpleIONeighborsOutValues : Fin n → ι → Array ε)
+    (onSimpleIOWrite onSimpleIORead : α → α)
+    : Vector ({ p : PinStateM ξ ι δ ε α // p.isSimpleIO = false } × Bool) n :=
+  -- 1. Resolve all of the available simple I/O requests.
+  let resolveSimpleIO' state i :=
+    resolveSimpleIO state onSimpleIOWrite onSimpleIORead (simpleIONeighborsOutValues i)
+  let initResults := states.mapFinIdx fun i state ih => resolveSimpleIO' state ⟨i, ih⟩
+
+  -- `didSteps` is "didStep" plural, not "did steps"
+  let (states, didSteps) := (List.finRange n).foldl (init := (initResults, Vector.replicate n false)) fun (states, didSteps) i =>
+    if didSteps[i] then (states, didSteps)
+    else
+      match h : states[i] with
+      | ⟨.readSimpleIO .., _⟩ | ⟨.writeSimpleIO .., _⟩ => by exfalso; contradiction
+      | ⟨.pure a, _⟩ => (states, didSteps)
+      | ⟨.readXBus pin _, _⟩ | ⟨.writeXBus pin .., _⟩ =>
+        let exchange? := resolveXBus states.unattach i (xBusNeighbors i pin) (by simp_all)
+        match exchange? with
+        | none => (states, didSteps)
+        | some (reader, readerIdx, writer, writerIdx) => (
+          states |>.set readerIdx (resolveSimpleIO' reader readerIdx) |>.set writerIdx (resolveSimpleIO' writer writerIdx),
+          didSteps |>.set readerIdx true |>.set writerIdx true)
+  Vector.zip states didSteps
+
+#print MC4000.PinStateM
+open MC4000 in
+#eval
+  let lc := lightController
+  let currentInstrs := lc.chips.map (fun { m, instrs, state, .. } => Sigma.mk m instrs[state.ip].snd)
+  let states := currentInstrs.map fun ⟨m, instr⟩ => Sigma.mk m (instructionEffects instr)
+  for x in currentInstrs do
+    println! repr x.2
+-- def ResolveResult.didStep : ResolveResult ξ ι δ ε α → Bool
+-- | .resolved _ didStep => didStep
+-- | .readXBusBlock .. | .writeXBusBlock .. => false
