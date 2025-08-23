@@ -7,6 +7,7 @@ import Lean.Parser.Basic
 -- TODO: grab space immediately after comment '#'
 -- TODO: allow any characters after comment, including reserved words
 -- TODO: properly parse empty lines in `mc`
+-- TDOO: add `expectedType`s
 
 structure MCParser.Line (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x) where
   label : Option Λ
@@ -112,12 +113,11 @@ def instrSyntaxToName? : Syntax → Option Name
 
 def MC4000.elabInstr : TermElab := fun stx _ => do
   if let some ctor := instrSyntaxToName? stx then
-    let expectedType := none --← mkAppM ``MC4000.Instruction #[←mkFreshTypeMVar]
     match stx with
     | `(shenzhen_mc_instr| nop)
-    | `(shenzhen_mc_instr| not)           => elabSimpleCtor ctor #[] expectedType
-    | `(shenzhen_mc_instr| mov $x $y)     => elabSimpleCtor ctor #[←elabRegOrInt x none, ←elabReg y none] expectedType
-    | `(shenzhen_mc_instr| jmp $l)        => elabSimpleCtor ctor #[mkStrLit (l.getId.toString false)] expectedType
+    | `(shenzhen_mc_instr| not)           => elabSimpleCtor ctor #[]
+    | `(shenzhen_mc_instr| mov $x $y)     => elabSimpleCtor ctor #[←elabRegOrInt x none, ←elabReg y none]
+    | `(shenzhen_mc_instr| jmp $l)        => elabSimpleCtor ctor #[mkStrLit (l.getId.toString false)]
     -- We don't call `elabReg` here because that produces an `Instruction.Reg`. We just want a `ξ`, which is `MC4000.XBus`.
     | `(shenzhen_mc_instr| slx x0)        => elabSimpleCtor ctor #[←mkAppM ``Fin.ofNat #[←mkConst' ``numXBusPins, mkNatLit 0]]
     | `(shenzhen_mc_instr| slx x1)        => elabSimpleCtor ctor #[←mkAppM ``Fin.ofNat #[←mkConst' ``numXBusPins, mkNatLit 1]]
@@ -126,12 +126,12 @@ def MC4000.elabInstr : TermElab := fun stx _ => do
     | `(shenzhen_mc_instr| add $ri)
     | `(shenzhen_mc_instr| sub $ri)
     | `(shenzhen_mc_instr| mul $ri)
-    | `(shenzhen_mc_instr| dgt $ri)       => elabSimpleCtor ctor #[←elabRegOrInt ri none] expectedType
+    | `(shenzhen_mc_instr| dgt $ri)       => elabSimpleCtor ctor #[←elabRegOrInt ri none]
     | `(shenzhen_mc_instr| dst $ri₁ $ri₂)
     | `(shenzhen_mc_instr| teq $ri₁ $ri₂)
     | `(shenzhen_mc_instr| tgt $ri₁ $ri₂)
     | `(shenzhen_mc_instr| tlt $ri₁ $ri₂)
-    | `(shenzhen_mc_instr| tcp $ri₁ $ri₂) => elabSimpleCtor ctor #[←elabRegOrInt ri₁ none, ←elabRegOrInt ri₂ none] expectedType
+    | `(shenzhen_mc_instr| tcp $ri₁ $ri₂) => elabSimpleCtor ctor #[←elabRegOrInt ri₁ none, ←elabRegOrInt ri₂ none]
     | _ => unreachable!
   else throwUnsupportedSyntax
 
