@@ -1,6 +1,4 @@
 import Shenzhen.Integer
-import Shenzhen.Clamp
-import Shenzhen.Fintype
 import Mathlib.Tactic.DeriveFintype
 
 deriving instance Fintype for UInt8
@@ -66,7 +64,7 @@ instance : Coe SimpleIOData Integer :=
 /-- Cast an `Integer` to `SimpleIOData` by clamping its value between `0` and `100`, inclusive. -/
 def Integer.toSimpleIOData : Integer → SimpleIOData
 | { n, .. } =>
-  let n' := clamp n 0 100
+  let n' := Clamp.clamp n 0 100
   ⟨n'.toUInt16.toUInt8, by
     rw [show (100 : UInt8) = (100 : UInt16).toUInt8 by decide]
     apply UInt16.toUInt8_le.mpr
@@ -74,5 +72,5 @@ def Integer.toSimpleIOData : Integer → SimpleIOData
     · rw [UInt16.le_iff_toNat_le, UInt16.toNat_mod]
       apply Nat.mod_le
     · apply Int16.toUInt16_le
-      · exact lo_le_clamp (by decide)
-      · exact clamp_le_hi (by decide)⟩
+      · exact Clamp.lo_le_clamp (by decide)
+      · exact Clamp.clamp_le_hi (by decide)⟩

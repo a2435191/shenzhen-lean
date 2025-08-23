@@ -1,5 +1,4 @@
-import Shenzhen.Clamp
-import Shenzhen.Fintype
+import Shenzhen.Util
 import Mathlib.Tactic.DeriveFintype
 
 deriving instance Fintype for UInt16
@@ -39,8 +38,8 @@ to `[-999, 999]`. -/
 @[inline]
 private def Integer.liftOp (f : Int16 → Int16 → Int16) : Integer → Integer → Integer
 | ⟨a, _, _⟩, ⟨b, _, _⟩ => ⟨
-  clamp (f a b) (-999) 999,
-  clamp_le_hi (by decide), lo_le_clamp (by decide)⟩
+  Clamp.clamp (f a b) (-999) 999,
+  Clamp.clamp_le_hi (by decide), Clamp.lo_le_clamp (by decide)⟩
 
 instance : Add Integer := ⟨Integer.liftOp Int16.add⟩
 instance : Sub Integer := ⟨Integer.liftOp Int16.sub⟩

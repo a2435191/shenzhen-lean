@@ -1,5 +1,5 @@
 import Shenzhen.Instruction
-import Shenzhen.Basic
+import Shenzhen.MC4000
 import Lean
 import Lean.Parser.Basic
 

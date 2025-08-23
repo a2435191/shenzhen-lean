@@ -1,4 +1,4 @@
-import Shenzhen.Fintype
+import Mathlib.Data.Fintype.Basic
 import Mathlib.Data.Finset.Max
 
 /-- `PinStateM` wraps values of type `α` in a monad that
@@ -94,5 +94,15 @@ theorem sizeOf'_map [Fintype δ] [Fintype ε] {p : PinStateM ξ ι δ ε α} {f 
     congr 3
     funext e
     apply sizeOf'_map
+
+instance [ToString ξ] [ToString ι] [ToString δ] [ToString ε] [ToString α] [Zero δ] [Zero ε]: ToString (PinStateM ξ ι δ ε α) :=
+  ⟨go⟩
+where
+  go
+  | .pure a => s!".pure ({toString a})"
+  | .readSimpleIO pin next => s!".readSimpleIO {pin} (fun | 0 => {go (next 0)} | ⋯)"
+  | .readXBus pin next => s!".readXBus {pin} (fun | 0 => {go (next 0)} | ⋯)"
+  | .writeSimpleIO pin d next => s!".writeSimpleIO {pin} {d} ({go next})"
+  | .writeXBus pin d next => s!".writeXBus {pin} {d} ({go next})"
 
 end PinStateM

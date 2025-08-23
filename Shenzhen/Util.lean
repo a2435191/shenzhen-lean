@@ -1,3 +1,14 @@
+import Mathlib.Data.Fintype.Basic
+
+@[always_inline]
+def Fin.succ' : Fin n → Fin n
+| ⟨k, lt⟩ => ⟨(k + 1) % n, Nat.mod_lt _ (Nat.zero_lt_of_lt lt)⟩
+
+instance BitVec.instFintype : Fintype (BitVec n) :=
+  Fintype.ofSurjective BitVec.ofFin fun bv => ⟨bv.toFin, rfl⟩
+
+namespace Clamp
+
 variable {α : Type u} [LE α] [DecidableLE α]
 
 @[reducible, inline]
@@ -28,6 +39,7 @@ theorem lo_le_clamp (h : lo ≤ hi) : lo ≤ clamp x lo hi := by
       assumption
 
 /-! Instances for use with `Integer` and `SimpleIOData` -/
+
 instance : @Std.Refl Int16 LE.le :=
   ⟨Int16.le_refl⟩
 
