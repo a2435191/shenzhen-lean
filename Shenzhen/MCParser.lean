@@ -1,16 +1,19 @@
 import Shenzhen.Instruction
 import Shenzhen.Basic
 import Lean
+import Lean.Parser.Basic
 
 -- TODO: allow any alphanumeric + '_' labels, including reserved words
 -- TODO: grab space immediately after comment '#'
 -- TODO: allow any characters after comment, including reserved words
+-- TODO: properly parse empty lines in `mc`
 
 structure MCParser.Line (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x) where
   label : Option Λ
   condition : ConditionalFlag
   instruction : Option (Instruction Λ ρ ξ ι)
   comment : Option String
+deriving Repr
 
 abbrev MC4000.Line :=
   MCParser.Line String InternalReg XBus SimpleIO
@@ -109,22 +112,26 @@ def instrSyntaxToName? : Syntax → Option Name
 
 def MC4000.elabInstr : TermElab := fun stx _ => do
   if let some ctor := instrSyntaxToName? stx then
+    let expectedType := none --← mkAppM ``MC4000.Instruction #[←mkFreshTypeMVar]
     match stx with
     | `(shenzhen_mc_instr| nop)
-    | `(shenzhen_mc_instr| not)           => elabSimpleCtor ctor #[]
-    | `(shenzhen_mc_instr| mov $x $y)     => elabSimpleCtor ctor #[←elabRegOrInt x none, ←elabReg y none]
-    | `(shenzhen_mc_instr| jmp $l)        => elabSimpleCtor ctor #[mkStrLit (l.getId.toString false)]
-    | `(shenzhen_mc_instr| slx $p)        => elabSimpleCtor ctor #[←elabReg p none]
+    | `(shenzhen_mc_instr| not)           => elabSimpleCtor ctor #[] expectedType
+    | `(shenzhen_mc_instr| mov $x $y)     => elabSimpleCtor ctor #[←elabRegOrInt x none, ←elabReg y none] expectedType
+    | `(shenzhen_mc_instr| jmp $l)        => elabSimpleCtor ctor #[mkStrLit (l.getId.toString false)] expectedType
+    -- We don't call `elabReg` here because that produces an `Instruction.Reg`. We just want a `ξ`, which is `MC4000.XBus`.
+    | `(shenzhen_mc_instr| slx x0)        => elabSimpleCtor ctor #[←mkAppM ``Fin.ofNat #[←mkConst' ``numXBusPins, mkNatLit 0]]
+    | `(shenzhen_mc_instr| slx x1)        => elabSimpleCtor ctor #[←mkAppM ``Fin.ofNat #[←mkConst' ``numXBusPins, mkNatLit 1]]
+    | `(shenzhen_mc_instr| slx $r)        => throwErrorAt r "`slx` only works with XBus registers"
     | `(shenzhen_mc_instr| slp $ri)
     | `(shenzhen_mc_instr| add $ri)
     | `(shenzhen_mc_instr| sub $ri)
     | `(shenzhen_mc_instr| mul $ri)
-    | `(shenzhen_mc_instr| dgt $ri)       => elabSimpleCtor ctor #[←elabRegOrInt ri none]
+    | `(shenzhen_mc_instr| dgt $ri)       => elabSimpleCtor ctor #[←elabRegOrInt ri none] expectedType
     | `(shenzhen_mc_instr| dst $ri₁ $ri₂)
     | `(shenzhen_mc_instr| teq $ri₁ $ri₂)
     | `(shenzhen_mc_instr| tgt $ri₁ $ri₂)
     | `(shenzhen_mc_instr| tlt $ri₁ $ri₂)
-    | `(shenzhen_mc_instr| tcp $ri₁ $ri₂) => elabSimpleCtor ctor #[←elabRegOrInt ri₁ none, ←elabRegOrInt ri₂ none]
+    | `(shenzhen_mc_instr| tcp $ri₁ $ri₂) => elabSimpleCtor ctor #[←elabRegOrInt ri₁ none, ←elabRegOrInt ri₂ none] expectedType
     | _ => unreachable!
   else throwUnsupportedSyntax
 
@@ -153,17 +160,35 @@ def MC4000.elabLine : TermElab := fun stx _ => do
     elabSimpleCtor ``MCParser.Line.mk
       #[←string?ToExpr labelString, ←mkConst' cond, instr, ←string?ToExpr comment]
       (expectedType? := ←mkConst' ``MC4000.Line)
-  | _ => unreachable!
+  | _ => throwUnsupportedSyntax
 
 -- elab "test_elabReg " e:reg : term => MC4000.elabReg e none
 -- elab "test_elabInt " e:int : term => elabInt e
 -- elab "test_elabRegOrInt " e:reg_or_int : term => MC4000.elabRegOrInt e none
 -- elab "test_elabInstr " e:shenzhen_mc_instr : term => MC4000.elabInstr e none
 elab "line(" e:line ")" : term => MC4000.elabLine e none
+elab "mc(" e:withPosition(sepBy(line, "\n", (linebreak colGe))) ")" : term => do
+  let lines ← e.getElems.mapM (MC4000.elabLine · none)
+  mkArrayLit (←mkConst' ``MC4000.Line) lines.toList
 
--- #check test_elabReg null
--- #eval test_elabInt -999
--- #check test_elabRegOrInt 3
--- #check test_elabInstr mov 0x0 acc
--- #check test_elabInstr tlt 999 p0
-#reduce line(xlb0l: @mov p0 acc #a)
+#eval mc(
+  slp 1
+  slp 2
+  slx x0
+  slp p0
+)
+
+#check #[
+  line(nop),
+  line(mov 0 x1),
+  line(jmp lbl),
+  line(slp p0),
+  line(slx x0),
+  line(add x1),
+  line(jmp labeleeeeeee3)
+]
+/--
+error: `slx` only works with XBus registers
+-/
+#guard_msgs in
+#check line(slx p0)
