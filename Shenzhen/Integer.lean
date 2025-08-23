@@ -9,13 +9,10 @@ structure Integer where
   n : Int16
   le : n ≤ 999 := by decide
   ge : -999 ≤ n := by decide
-deriving DecidableEq, BEq, Fintype
+deriving DecidableEq, BEq, Fintype, Repr
 
-instance : Repr Integer :=
-  ⟨(reprPrec ·.n)⟩
-
-instance : ReprAtom Integer :=
-  ⟨⟩
+instance : ToString Integer :=
+  ⟨(toString ·.n)⟩
 
 instance : Inhabited Integer :=
   ⟨{ n := 0 }⟩

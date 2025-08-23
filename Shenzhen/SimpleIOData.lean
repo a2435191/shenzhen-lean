@@ -8,13 +8,10 @@ deriving instance Fintype for UInt8
 structure SimpleIOData where
   n : UInt8
   le : n ≤ 100 := by decide
-deriving Fintype
+deriving Fintype, Repr
 
-instance : Repr SimpleIOData :=
-  ⟨(reprPrec ·.n ·)⟩
-
-instance : ReprAtom SimpleIOData :=
-  ⟨⟩
+instance : ToString SimpleIOData :=
+  ⟨(toString ·.n)⟩
 
 instance : Inhabited SimpleIOData :=
   ⟨{ n := 0 }⟩

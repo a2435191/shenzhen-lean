@@ -10,12 +10,11 @@ namespace MC4000
 @[reducible] def XBus := Fin numXBusPins
 @[reducible] def numSimpleIOPins := 2
 @[reducible] def SimpleIO := Fin numSimpleIOPins
+
 inductive InternalReg | acc -- Only one register
 deriving Repr
-end MC4000
 
-inductive CondFlag | none | pos | neg | once
-deriving Repr
+end MC4000
 
 @[always_inline]
 def Fin.succ' : Fin n → Fin n
@@ -74,12 +73,12 @@ structure MC4000 where
   /-- The number of instructions on the chip. -/
   {m : outParam Nat}
   [inst : NeZero m]
-  instrs : Vector (CondFlag × Instruction m) m
+  instrs : Vector (ConditionalFlag × Instruction m) m
   state : State m := .init m
 deriving Repr
 
 namespace MC4000
-variable (instrs : Array (CondFlag × _root_.Instruction Nat InternalReg XBus SimpleIO))
+variable (instrs : Array (ConditionalFlag × _root_.Instruction Nat InternalReg XBus SimpleIO))
 
 def mk'.jmpLabelsInBounds : Prop :=
   ∀ pair ∈ instrs, match pair with
@@ -104,7 +103,7 @@ def mk'
     (hm₁ : instrs.size ≠ 0 := by decide) (hm₂ : mk'.jmpLabelsInBounds instrs := by decide)
     (state : State instrs.size := @State.init _ ⟨hm₁⟩) :=
   let m := instrs.size
-  let instrs' : Array (CondFlag × Instruction m) :=
+  let instrs' : Array (ConditionalFlag × Instruction m) :=
     instrs.attach.map fun ⟨(f, i), h⟩ => Prod.mk f <| match i with
       | .jmp «to» => .jmp ⟨«to», hm₂ _ h⟩
       | .nop => .nop | .not => .not
@@ -116,93 +115,82 @@ def mk'
 
 end MC4000
 
-@[reducible] def MC4000.PinStateM (m : Nat) :=
-  _root_.PinStateM XBus SimpleIO (State m → Integer) (State m → SimpleIOData)
+@[reducible] def MC4000.PinStateM :=
+  _root_.PinStateM XBus SimpleIO Integer SimpleIOData
 
 open MC4000 in
 /-- Get a function to the next state after executing `instr`, possibly with
 pin reads/a pin write.
 here. -/
-def instructionEffects {m} (instr : Instruction m) : PinStateM m (State m → State m) :=
-  let readRI ri : MC4000.PinStateM m (State m → Integer) := match ri with
-    | .int k => pure (fun _ => k)
-    | .null => pure (fun _ => 0)
-    | .internal .acc => pure State.acc
-    | .simpleIO pin => .readSimpleIO pin fun d => pure (SimpleIOData.toInteger ∘ d)
+def instructionEffects {m} (instr : Instruction m) (state : State m) : PinStateM (State m) :=
+  let readRI ri := match ri with
+    | .int k => pure k
+    | .null => pure 0
+    | .internal .acc => pure state.acc
+    | .simpleIO pin => .readSimpleIO pin (pure ∘ SimpleIOData.toInteger)
     | .xBus pin => .readXBus pin pure
 
   let binFun ri f := do
-    let d ← readRI ri
-    return fun state => state.modifyAcc f (d state)
+    return state.modifyAcc f (←readRI ri)
 
   let binRel ri₁ ri₂ r := do
-    let fa ← readRI ri₁
-    let fb ← readRI ri₂
-    return fun state => state.setCondIff (r (fa state) (fb state))
+    return state.setCondIff (r (←readRI ri₁) (←readRI ri₂))
 
-  (State.nextInstr instr ∘ ·) <$> match instr with
+  State.nextInstr instr <$> match instr with
   -- Basic instructions
-  | .nop => return id
+  | .nop => return state
   | .mov ri r => do
     let d ← readRI ri
     match r with
-    | .null => return id
-    | .internal .acc => return fun state => { state with acc := d state }
-    | .simpleIO pin => .writeSimpleIO pin (Integer.toSimpleIOData ∘ d) (pure id)
-    | .xBus pin => .writeXBus pin d (pure id)
-  | .jmp _ => return id -- `id` since we map it through `State.nextInstr` above
+    | .null => return state
+    | .internal .acc => return { state with acc := d }
+    | .simpleIO pin => .writeSimpleIO pin (Integer.toSimpleIOData d) (pure state)
+    | .xBus pin => .writeXBus pin d (pure state)
+  | .jmp _ => return state -- just `state` since we map it through `State.nextInstr` above
   | .slp ri => do
-    let slpTime := Int16.toNatClampNeg ∘ Integer.n ∘ (←readRI ri)
-    return fun state => { state with sleep := .slp (slpTime state)  }
-  | .slx p =>
-    return ({ · with sleep := .slx p })
+    let slpTime := Int16.toNatClampNeg (Integer.n (←readRI ri))
+    return { state with sleep := .slp slpTime }
+  | .slx p => return { state with sleep := .slx p }
   -- Arithmetic instructions
   | .add ri => inline (binFun ri Add.add)
   | .sub ri => inline (binFun ri Sub.sub)
   | .mul ri => inline (binFun ri Mul.mul)
   | .not =>
-    return fun state => { state with acc := ~~~state.acc }
+    return { state with acc := ~~~state.acc }
   | .dgt ri => inline (binFun ri Integer.dgt)
   | .dst ri₁ ri₂ => do
     let fa ← readRI ri₁
     let fb ← readRI ri₂
-    return fun state => { state with acc := Integer.dst state.acc (fa state) (fb state) }
+    return { state with acc := Integer.dst state.acc fa fb }
   -- Test instructions
   | .teq ri₁ ri₂ => inline (binRel ri₁ ri₂ BEq.beq)
   | .tgt ri₁ ri₂ => inline (binRel ri₁ ri₂ (· > ·))
   | .tlt ri₁ ri₂ => inline (binRel ri₁ ri₂ (· < ·))
   | .tcp ri₁ ri₂ => do
-    let fa ← readRI ri₁
-    let fb ← readRI ri₂
-    return fun state =>
-      let a := fa state
-      let b := fb state
-      { state with cond := ⟨a > b, a < b⟩ }
+    let a ← readRI ri₁
+    let b ← readRI ri₂
+    return { state with cond := ⟨a > b, a < b⟩ }
 
-structure Conns (α : Type u) where
-  edges : Array (Array α)
-  disjoint : ∀ i j : Fin edges.size, i ≠ j → ∀ x ∈ edges[i], x ∉ edges[j]
-deriving Repr
-
-def Conns.mk' (edges : Array (Array α)) (disjoint := by decide) :=
-  Conns.mk edges disjoint
+abbrev Conns (numChips numPins : Nat) :=
+  Vector (Vector (Array (Fin numChips × Fin numPins)) numPins) numChips
 
 -- for now, just MC4000s
 structure Board where
   {n : Nat}
   chips : Vector MC4000 n
-  simpleIOConns : Conns (Fin n × Fin MC4000.numSimpleIOPins)
-  xBusConns : Conns (Fin n × Fin MC4000.numXBusPins)
+  simpleIOConns : Conns n MC4000.numSimpleIOPins
+  xBusConns : Conns n MC4000.numXBusPins
 deriving Repr
 
 /-- This is the "Touch Activated Light Controller" on page `CSM_TD_100650` of the manual.
 For now (TODO), the input and output are simulated by more `MC4000`s. -/
+@[reducible]
 def lightController : Board :=
-  let inputs : Array SimpleIOData := #[0, 0, 100, 0, 0, 100, 0, 100, 0, 100, 0]
+  let inputs : Array SimpleIOData := #[0, 0, 100, 0]
   let touch : MC4000 :=
     let instrs := inputs.flatMap fun x => #[
       (.none, .mov (.int x) (.simpleIO 0)),
-      (.none, .slp (.int 0))]
+      (.none, .slp (.int 1))]
     .mk' instrs
   let chip₁ : MC4000 :=
     let instrs := #[
@@ -229,8 +217,8 @@ def lightController : Board :=
       (.none, .slp (.int 1))] }
   {
     chips := #v[touch, chip₁, chip₂, light],
-    simpleIOConns := .mk' #[#[(0, 0), (1, 0)], #[(2, 1), (3, 1)]],
-    xBusConns := .mk' #[#[(1, 1), (2, 0)]]
+    simpleIOConns := #v[#v[#[(1, 0)], #[]], #v[#[(0, 0)], #[]], #v[#[], #[(3, 1)]], #v[#[], #[(2, 1)]]],
+    xBusConns := #v[#v[#[], #[]], #v[#[], #[(2, 0)]], #v[#[(1, 1)], #[]], #v[#[], #[]]]
   }
 
 /-- Resolve the XBus read or write at `states[i]` given `states` (one for each chip). Returns
@@ -264,7 +252,7 @@ returns `state`. The `neighborOutValues` are any values written by neighboring I
 a timestep. `onWrite` and `onRead` are how the state should be transformed after a write and read,
 respectively. If `state` is composed of multiple simple I/O operations without any XBus operations in between, they will all be resolved. -/
 @[inline] def resolveSimpleIO {α : Type u} [Max ε] [Zero ε] [Fintype δ] [Fintype ε]
-    (state : PinStateM ξ ι δ ε α) (onWrite onRead : α → α)
+    (state : PinStateM ξ ι δ ε α) (onWrite : ι → ε → α → α) (onRead : ι → α → α)
     (neighborOutValues : ι → Array ε) : { p : PinStateM ξ ι δ ε α // p.isSimpleIO = false } :=
   go state
 where
@@ -273,15 +261,15 @@ where
   @[inline] go [Fintype δ] [Fintype ε] state :=
     match h : state with
     | .readXBus .. | .writeXBus .. | .pure _ => ⟨state, h ▸ rfl⟩
-    | .writeSimpleIO _ _ next =>
-      go (onWrite <$> next)
+    | .writeSimpleIO srcPin d next =>
+      go (onWrite srcPin d <$> next)
     | .readSimpleIO dstPin next =>
       let maxNeighbor := (neighborOutValues dstPin).foldl max 0
-      go (onRead <$> next maxNeighbor)
+      go (onRead dstPin <$> next maxNeighbor)
 termination_by state
 decreasing_by (
   · simp [sizeOf, PinStateM.sizeOf'_map, PinStateM.sizeOf']
-  · show sizeOf (onRead <$> next maxNeighbor) < sizeOf (PinStateM.readSimpleIO dstPin next)
+  · show sizeOf (onRead dstPin <$> next maxNeighbor) < sizeOf (PinStateM.readSimpleIO dstPin next)
     simp only [sizeOf, PinStateM.sizeOf'_map, PinStateM.sizeOf', Nat.lt_one_add_iff]
     apply Finset.le_max'
     rw [Finset.mem_insert]
@@ -289,10 +277,10 @@ decreasing_by (
     apply Finset.mem_image_of_mem
     apply Fintype.complete)
 
-@[specialize] def resolve [Max ε] [Zero ε] [Fintype δ] [Fintype ε] [BEq ξ]
+@[specialize] def resolve {ξ ι δ ε α} [Max ε] [Zero ε] [Fintype δ] [Fintype ε] [BEq ξ]
     (states : Vector (PinStateM ξ ι δ ε α) n)
     (xBusNeighbors : Fin n → ξ → Array (Fin n × ξ)) (simpleIONeighborsOutValues : Fin n → ι → Array ε)
-    (onSimpleIOWrite onSimpleIORead : α → α)
+    (onSimpleIOWrite : ι → ε → α → α) (onSimpleIORead : ι → α → α)
     : Vector ({ p : PinStateM ξ ι δ ε α // p.isSimpleIO = false } × Bool) n :=
   -- 1. Resolve all of the available simple I/O requests.
   let resolveSimpleIO' state i :=
@@ -315,11 +303,26 @@ decreasing_by (
           didSteps |>.set readerIdx true |>.set writerIdx true)
   Vector.zip states didSteps
 
-#print MC4000.PinStateM
+instance : LE SimpleIOData := ⟨fun ⟨n, _⟩ ⟨m, _⟩ => n ≤ m⟩
+instance : DecidableLE SimpleIOData :=
+  fun ⟨n, _⟩ ⟨m, _⟩ => decidable_of_bool (n ≤ m) (by simp [LE.le])
+instance : Max SimpleIOData := maxOfLe
+instance : Zero SimpleIOData := ⟨0⟩
+instance : Zero Integer := ⟨0⟩
+instance : ToString ((m : Nat) × MC4000.State m) where
+  toString | ⟨_, x⟩ => toString (repr x)
+
 open MC4000 in
 #eval
   let lc := lightController
-  let currentInstrs := lc.chips.map (fun { m, instrs, state, .. } => Sigma.mk m instrs[state.ip].snd)
-  let states := currentInstrs.map fun ⟨m, instr⟩ => Sigma.mk m (instructionEffects instr)
-  for x in currentInstrs do
-    println! repr x.2
+  let effects : Vector (PinStateM ((m : Nat) × State m)) lc.n := lc.chips.map
+    fun { m, instrs, state, inst } =>
+      let fx := instructionEffects instrs[state.ip].snd state
+      (⟨m, ·⟩) <$> fx
+  let this := resolve effects
+    (fun i j => lc.xBusConns[i][j])
+    (fun i j => lc.simpleIOConns[i][j].map fun (i', j') => lc.chips[i'].state.simpleIOOut[j'])
+    (fun pin d ⟨m, state⟩ => ⟨m, { state with simpleIOOut := state.simpleIOOut.set pin d }⟩)
+    (fun pin ⟨m, state⟩ => ⟨m, { state with simpleIOOut := state.simpleIOOut.set pin 0 }⟩)
+  for (x, b) in this do
+    println! toString x
