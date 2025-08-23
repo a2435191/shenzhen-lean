@@ -8,4 +8,4 @@ structure T (α β : Type)
 
 structure S where
   x : Option (T A S)
-  y : (T B S)
+  y : Option (T B S)
