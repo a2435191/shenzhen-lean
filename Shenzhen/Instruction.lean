@@ -1,5 +1,8 @@
 import Shenzhen.Integer
 
+inductive ConditionalFlag | none | pos | neg | once
+deriving Repr
+
 structure ConditionalState where
   posEnabled : Bool
   negEnabled : Bool
@@ -95,3 +98,27 @@ inductive Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x)
 -- Undocumented instruction
 -- | gen : ι → R/I → R/I → Instruction .. -- TODO: add this back in
 deriving Inhabited, Repr
+
+def Instruction.mapΛ (instr : Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x))
+    (f : Λ → Λ') : Instruction Λ' ρ ξ ι :=
+  match instr with
+  | .jmp l => .jmp (f l)
+  | .nop => .nop
+  | .mov x y => .mov x y
+  | .slp x => .slp x | .slx x => .slx x
+  | .add x => .add x | .sub x => .sub x | .mul x => .mul x | .not => .not
+  | .dgt x => .dgt x | .dst x y => .dst x y
+  | .teq x y => .teq x y | .tgt x y => .tgt x y | .tlt x y => .tlt x y | .tcp x y => .tcp x y
+
+@[specialize] def Instruction.mapΛM {m : Type u → Type v} [Functor m] [Pure m]
+    {Λ : Type u} {Λ' : Type u} {ρ : Type u} {ξ : Type u} {ι : Type u}
+    (f : Λ → m Λ') (instr : Instruction Λ ρ ξ ι)
+    : m (Instruction Λ' ρ ξ ι) :=
+  match instr with
+  | .jmp l => jmp <$> f l
+  | .nop => pure <| nop
+  | .mov x y => pure <| mov x y
+  | .slp x => pure <| slp x | .slx x => pure <| slx x
+  | .add x => pure <| add x | .sub x => pure <| sub x | .mul x => pure <| mul x | .not => pure <| not
+  | .dgt x => pure <| dgt x | .dst x y => pure <| dst x y
+  | .teq x y => pure <| teq x y | .tgt x y => pure <| tgt x y | .tlt x y => pure <| tlt x y | .tcp x y => pure <| tcp x y
