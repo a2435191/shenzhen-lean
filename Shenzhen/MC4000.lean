@@ -12,7 +12,7 @@ namespace MC4000
 @[reducible] def SimpleIO := Fin numSimpleIOPins
 
 inductive InternalReg | acc -- Only one register
-deriving Repr
+deriving Repr, Lean.ToExpr
 
 end MC4000
 

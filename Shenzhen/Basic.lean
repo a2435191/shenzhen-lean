@@ -7,6 +7,9 @@ import Shenzhen.PinStateM
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
 
+open Compile
+open MCParser
+
 open MC4000 in
 /-- Get a function to the next state after executing `instr`, possibly with
 pin reads/a pin write.
@@ -76,34 +79,28 @@ For now (TODO), the input and output are simulated by more `MC4000`s. -/
 @[reducible]
 def lightController : Board :=
   let inputs : Array SimpleIOData := #[0, 0, 100, 0]
-  let touch : MC4000 :=
+  let touch :=
     let instrs := inputs.flatMap fun x => #[
       (.none, .mov (.int x) (.simpleIO 0)),
       (.none, .slp (.int 1))]
-    .mk' instrs
-  let chip₁ : MC4000 :=
-    let instrs := #[
-      (.none, .teq (.internal .acc) (.int 0)),
-      (.pos,  .teq (.simpleIO 0) (.int 100)),
-      (.pos,  .mov (.int 1) (.xBus 1)),
-      (.neg,  .mov (.int 0) (.xBus 1)),
-      (.none, .mov (.simpleIO 0) (.internal .acc)),
-      (.none, .slp (.int 1))]
-    { m := 6, instrs := instrs.toVector }
-  let chip₂ : MC4000 :=
-    let instrs := #[
-      (.none, .slx 0),
-      (.none, .teq (.xBus 0) (.int 1)),
-      (.pos,  .add (.int 50)),
-      (.none, .tgt (.internal .acc) (.int 100)),
-      (.pos,  .mov (.int 0) (.internal .acc)),
-      (.none, .mov (.internal .acc) (.simpleIO 1))
-    ]
-    { m := 6, instrs := instrs.toVector }
-  let light : MC4000 :=
-    { instrs := #v[
-      (.none, .mov (.simpleIO 1) (.internal .acc)),
-      (.none, .slp (.int 1))] }
+    MC4000.mk' instrs
+  let chip₁ := MC4000.ofCompiled mcc(
+      teq acc 0
+    + teq p0 100
+    + mov 1 x1
+    - mov 0 x1
+      mov p0 acc
+      slp 1)
+  let chip₂ := MC4000.ofCompiled mcc(
+      slx x0
+      teq x0 p1
+    + add 50
+      tgt acc 100
+    + mov 0 acc
+      mov acc p1)
+  let light := MC4000.ofCompiled mcc(
+    mov p1 acc
+    slp 1)
   {
     chips := #v[touch, chip₁, chip₂, light],
     simpleIOConns := #v[#v[#[(1, 0)], #[]], #v[#[(0, 0)], #[]], #v[#[], #[(3, 1)]], #v[#[], #[(2, 1)]]],

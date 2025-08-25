@@ -1,7 +1,7 @@
 import Shenzhen.Integer
 
 inductive ConditionalFlag | none | pos | neg | once
-deriving Repr
+deriving Repr, Inhabited, Lean.ToExpr
 
 structure ConditionalState where
   posEnabled : Bool
@@ -23,7 +23,7 @@ inductive Reg (ρ : Type v) (ξ : Type w) (ι : Type x)
 | simpleIO : ι → Reg ..
 /-- The `null` pseudo-register. -/
 | null
-deriving Repr
+deriving Repr, Lean.ToExpr
 
 @[inline] def Reg.pin? : Reg ρ ξ ι → Option (Pin ξ ι)
 | .xBus i => some (.xBus i)
@@ -35,7 +35,7 @@ inductive RegOrInt (ρ : Type v) (ξ : Type w) (ι : Type x)
 | reg : Reg ρ ξ ι → RegOrInt ..
 /-- An integer literal. -/
 | int : Integer → RegOrInt ..
-deriving Repr
+deriving Repr, Lean.ToExpr
 
 namespace RegOrInt
 
@@ -97,7 +97,31 @@ inductive Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x)
 | tcp : R/I → R/I → Instruction ..
 -- Undocumented instruction
 -- | gen : ι → R/I → R/I → Instruction .. -- TODO: add this back in
-deriving Inhabited, Repr
+deriving Inhabited, Repr, Lean.ToExpr
+
+-- Needed for the derived instances for e.g. `MCParser.Line`,
+-- and `instToExprOptionOfToLevel` only allows a type with one universe level
+-- (`Instruction` has four)
+open Lean in
+instance
+    [ToLevel.{u}] [ToLevel.{v}] [ToLevel.{w}] [ToLevel.{x}]
+    {Λ : Type u} {ρ : Type v} {ξ : Type w} {ι : Type x}
+    [ToExpr Λ] [ToExpr ρ] [ToExpr ξ] [ToExpr ι]
+    : ToExpr (Option (Instruction Λ ρ ξ ι)) :=
+  let levels := [toLevel.{u}, toLevel.{v}, toLevel.{w}, toLevel.{x}]
+  let typeExpr := mkApp4 (mkConst ``Instruction levels)
+                    (toTypeExpr Λ) (toTypeExpr ρ) (toTypeExpr ξ) (toTypeExpr ι)
+  let maxLevel := Level.mkNaryMax levels
+  { toTypeExpr := typeExpr,
+    toExpr
+    | none => .app (mkConst ``Option.none [maxLevel]) typeExpr
+    | some i => mkApp2 (mkConst ``Option.some [maxLevel]) typeExpr (toExpr i) }
+
+-- elab "test" : term =>
+--   let x : Option (Instruction String Unit (Fin 2) (Fin 2)) := some .nop
+--   return Lean.ToExpr.toExpr x
+
+-- #eval test
 
 def Instruction.mapΛ (instr : Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x))
     (f : Λ → Λ') : Instruction Λ' ρ ξ ι :=

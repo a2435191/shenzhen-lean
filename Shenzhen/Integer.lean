@@ -1,5 +1,6 @@
 import Shenzhen.Util
 import Mathlib.Tactic.DeriveFintype
+import Lean
 
 deriving instance Fintype for UInt16
 deriving instance Fintype for Int16
@@ -146,3 +147,28 @@ instance : DecidableLT Integer :=
   fun ⟨a, _, _⟩ ⟨b, _, _⟩ =>
     if h : a < b then .isTrue h
     else .isFalse h
+
+open Lean in
+instance : ToExpr Integer where
+  toTypeExpr := mkConst ``Integer
+  toExpr
+  | { n, .. } =>
+    let pf₁ := -- n ≤ 999
+      mkDecideLEProof (toExpr n) (toExpr (999 : Int16))
+    let pf₂ := -- -999 ≤ n
+      mkDecideLEProof (toExpr (-999 : Int16)) (toExpr n)
+    mkApp3 (mkConst ``Integer.mk) (toExpr n) pf₁ pf₂
+where
+  /-- Makes a proof for `a ≤ b` using `decide`, where `a b : Int16`. -/
+  mkDecideLEProof (a b : Expr) : Expr :=
+    Meta.mkDecideProof'
+      (mkApp4 (mkConst ``LE.le [0]) (mkConst ``Int16) (mkConst ``instLEInt16) a b)
+      (mkApp2 (mkConst ``Int16.decLe) a b)
+
+-- elab "test " sign:("-" noWs)? x:num : term =>
+--   let n : Int := (if sign.isSome then -1 else 1) * x.getNat
+--   if h : n ≤ 999 ∧ -999 ≤ n then
+--     return Lean.ToExpr.toExpr (Integer.ofInt n h.left h.right)
+--   else throwError "invalid literal provided"
+
+-- #check test -3
