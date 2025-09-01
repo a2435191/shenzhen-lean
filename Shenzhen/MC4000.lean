@@ -139,8 +139,7 @@ abbrev InstructionEffects (m : Nat) :=
     (prevSimpleIOIn : PrevSimpleIOIn) (fx : InstructionEffects m Unit) : XBusEffects XBus Integer (State m) :=
   Prod.snd <$> fx prevSimpleIOIn initState
 
-/-- Get a function to the next state after executing `instr`, possibly with
-XBus pin reads/a peek/a write. -/
+/-- Get the state after executing `instr`, possibly wrapped in XBus pin reads/a peek/a write. -/
 def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit := do
   -- increment the IP separately
   match instr with | .jmp _ => return; | _ => modify State.incIp;
