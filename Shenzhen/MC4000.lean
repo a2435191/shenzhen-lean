@@ -1,7 +1,7 @@
 import Shenzhen.Instruction
 import Shenzhen.Integer
 import Shenzhen.SimpleIOData
-import Shenzhen.PinStateM
+import Shenzhen.PinState
 import Shenzhen.Util
 
 namespace MC4000
@@ -18,16 +18,11 @@ end MC4000
 
 namespace MC4000
 
-inductive Sleep (ξ : Type u)
-| slp : Nat → Sleep ξ
-| slx : ξ → Sleep ξ
-deriving Repr
-
 structure State (numInstr : Nat) where
   acc : Integer
   cond : ConditionalState
   ip : Fin numInstr
-  sleep : Sleep XBus
+  sleep : Nat
   simpleIOOut : Vector SimpleIOData numSimpleIOPins
 deriving Repr
 
@@ -41,7 +36,7 @@ def init (m) [NeZero m] : State m :=
   { acc := 0,
     cond := ⟨false, false⟩,
     ip := 0,
-    sleep := .slp 0,
+    sleep := 0,
     simpleIOOut := #v[0, 0] }
 
 instance [NeZero m] : Inhabited (State m) :=
@@ -54,13 +49,12 @@ def modifyAcc (state : State m) (f : Integer → Integer → Integer) (other : I
 /-- Enable `pos` and disable `neg` instructions if `b` holds.
   Otherwise, disable `pos` and enable `neg` instructions. -/
 @[inline]
-def setCondIff (state : State m) (b : Bool) :=
+def setCondIff  (b : Bool) (state : State m) :=
   { state with cond := ⟨b, !b⟩ }
 
 @[inline]
-def nextInstr : Instruction m → State m → State m
-| .jmp «to», state => { state with ip := «to» }
-| _, state => { state with ip := state.ip.succ' }
+def incIp (state : State m) : State m :=
+  { state with ip := state.ip.succ' }
 
 end MC4000.State
 
@@ -108,6 +102,3 @@ def mk'
       | .dst x y => .dst x y
       | .teq x y => .teq x y | .tgt x y => .tgt x y | .tlt x y => .tlt x y | .tcp x y => .tcp x y
   @MC4000.mk m ⟨hm₁⟩ ⟨instrs', by rw [Array.size_map, Array.size_attach]⟩ state
-
-@[reducible] def PinStateM :=
-  _root_.PinStateM XBus SimpleIO Integer SimpleIOData

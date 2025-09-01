@@ -74,3 +74,7 @@ def Integer.toSimpleIOData : Integer → SimpleIOData
     · apply Int16.toUInt16_le
       · exact Clamp.lo_le_clamp (by decide)
       · exact Clamp.clamp_le_hi (by decide)⟩
+
+/-- Clamp negative values to `(0 : Nat)`. -/
+@[inline] def SimpleIOData.clampToNat : SimpleIOData → Nat
+| { n, .. } => n.toNat

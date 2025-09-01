@@ -36,7 +36,7 @@ instance instOfNatInteger : OfNat Integer n where
 
 /-- Lift a binary operation on `Int16`s to `Integer`s by clamping the result
 to `[-999, 999]`. -/
-@[inline]
+@[inline, specialize]
 private def Integer.liftOp (f : Int16 → Int16 → Int16) : Integer → Integer → Integer
 | ⟨a, _, _⟩, ⟨b, _, _⟩ => ⟨
   Clamp.clamp (f a b) (-999) 999,
@@ -172,3 +172,7 @@ where
 --   else throwError "invalid literal provided"
 
 -- #check test -3
+
+/-- Clamp negative values to `(0 : Nat)`. -/
+@[inline] def Integer.clampToNat : Integer → Nat
+| { n, .. } => n.toNatClampNeg
