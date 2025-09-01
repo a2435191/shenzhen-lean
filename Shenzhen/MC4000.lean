@@ -2,7 +2,6 @@ import Shenzhen.Instruction
 import Shenzhen.Integer
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
-import Shenzhen.XBusEffects
 
 namespace MC4000
 

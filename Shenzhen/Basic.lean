@@ -19,10 +19,10 @@ abbrev PrevSimpleIOIn :=
 @[reducible] def InstructionEffects (m : Nat) :=
   ReaderT PrevSimpleIOIn
     $ StateT (State m)
-    $ PinState.XBus XBus Integer
+    $ XBusEffects XBus Integer
 
 def InstructionEffects.run {m} (initState : State m)
-    (prevSimpleIOIn : PrevSimpleIOIn) (fx : InstructionEffects m Unit) :  PinState.XBus XBus Integer (State m) :=
+    (prevSimpleIOIn : PrevSimpleIOIn) (fx : InstructionEffects m Unit) : XBusEffects XBus Integer (State m) :=
   fx prevSimpleIOIn initState <&> Prod.snd
 
 @[inline]
@@ -40,7 +40,7 @@ def readRI {m} : Instruction.RegOrInt InternalReg XBus SimpleIO → InstructionE
   let prevSimpleIO ← read
   return prevSimpleIO[pin]
 | .xBus pin => fun _ state =>
-  .readXBus pin fun d => return (d, state)
+  .read pin fun d => return (d, state)
 
 /-- Set `acc` to `f acc [value in ri]`. -/
 @[specialize, inline]
@@ -67,7 +67,7 @@ def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit :
     let n ← readRI ri
     modify ({ · with sleep := n.clampToNat })
   | .slx pin =>
-    fun _ state => .peekXBus pin <| return ((), state)
+    fun _ state => .peek pin <| return ((), state)
   | .jmp lbl => modify ({ · with ip := lbl })
   | .mov ri r => do
     let n ← readRI ri
@@ -75,7 +75,7 @@ def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit :
     | .null => return
     | .internal .acc => modify ({· with acc := n })
     | .simpleIO pin => setSimpleIOOut pin n.toSimpleIOData
-    | .xBus pin => fun _ state => .writeXBus pin n ((), state)
+    | .xBus pin => fun _ state => .write pin n ((), state)
   | .add ri => modifyAcc ri Add.add
   | .sub ri => modifyAcc ri Sub.sub
   | .mul ri => modifyAcc ri Mul.mul
