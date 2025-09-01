@@ -5,9 +5,9 @@ import Shenzhen.Instruction
 import Shenzhen.Integer
 import Shenzhen.MC4000
 import Shenzhen.MCParser
-import Shenzhen.PinState
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
+import Shenzhen.XBusEffects
 
 open Compile
 open MCParser
