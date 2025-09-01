@@ -8,6 +8,14 @@ structure SimpleIOData where
   le : n ≤ 100 := by decide
 deriving Fintype, Repr
 
+namespace SimpleIOData
+
+instance : Repr SimpleIOData where
+  reprPrec x prec := reprPrec x.n prec
+
+instance : ReprAtom SimpleIOData :=
+  .mk
+
 instance : ToString SimpleIOData :=
   ⟨(toString ·.n)⟩
 
@@ -17,15 +25,21 @@ instance : Inhabited SimpleIOData :=
 instance : Coe SimpleIOData UInt8 :=
   ⟨(·.n)⟩
 
-def SimpleIOData.ofNat (n : Nat) (h : n ≤ 100) :=
+def ofNat (n : Nat) (h : n ≤ 100) :=
   SimpleIOData.mk (UInt8.ofNat n) <| by
     apply (UInt8.le_ofNat_iff (by decide)).mpr
     rwa [UInt8.toNat_ofNat_of_lt' (by grind only)]
 
-instance instOfNatSimpleIOData : OfNat SimpleIOData n where
+instance {n} : OfNat SimpleIOData n where
   ofNat :=
     if h : n ≤ 100 then .ofNat n h
     else panic! "In `instOfNatSimpleIOData`: argument is not ≤ 100!"
+
+/-- Clamp negative values to `(0 : Nat)`. -/
+@[inline] def clampToNat : SimpleIOData → Nat
+| { n, .. } => n.toNat
+
+end SimpleIOData
 
 theorem UInt8.bitVec_not_msb_iff {n : UInt8} : n.toBitVec.msb = false ↔ n < 128 := by
   rw [BitVec.msb_eq_false_iff_two_mul_lt, toNat_toBitVec]
@@ -43,7 +57,9 @@ theorem UInt8.toInt8_le {a b : UInt8} (ha : a < 128) (hb : b < 128) : a.toInt8 �
       BitVec.toInt_eq_toNat_of_lt (this hb)]
   rw [Int.ofNat_le]
 
-def SimpleIOData.toInteger : SimpleIOData → Integer
+namespace SimpleIOData
+
+def toInteger : SimpleIOData → Integer
 | ⟨n, le⟩ =>
   have : n < 128 := UInt8.lt_of_le_of_lt le (by decide)
   have pf₁ := by
@@ -61,6 +77,8 @@ def SimpleIOData.toInteger : SimpleIOData → Integer
 instance : Coe SimpleIOData Integer :=
   ⟨SimpleIOData.toInteger⟩
 
+end SimpleIOData
+
 /-- Cast an `Integer` to `SimpleIOData` by clamping its value between `0` and `100`, inclusive. -/
 def Integer.toSimpleIOData : Integer → SimpleIOData
 | { n, .. } =>
@@ -74,7 +92,3 @@ def Integer.toSimpleIOData : Integer → SimpleIOData
     · apply Int16.toUInt16_le
       · exact Clamp.lo_le_clamp (by decide)
       · exact Clamp.clamp_le_hi (by decide)⟩
-
-/-- Clamp negative values to `(0 : Nat)`. -/
-@[inline] def SimpleIOData.clampToNat : SimpleIOData → Nat
-| { n, .. } => n.toNat
