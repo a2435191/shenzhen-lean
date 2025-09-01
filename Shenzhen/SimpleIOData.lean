@@ -6,7 +6,7 @@ deriving instance Fintype for UInt8
 structure SimpleIOData where
   n : UInt8
   le : n ≤ 100 := by decide
-deriving Fintype, Repr
+deriving Fintype
 
 namespace SimpleIOData
 
@@ -26,7 +26,7 @@ instance : Coe SimpleIOData UInt8 :=
   ⟨(·.n)⟩
 
 def ofNat (n : Nat) (h : n ≤ 100) :=
-  SimpleIOData.mk (UInt8.ofNat n) <| by
+  mk (UInt8.ofNat n) <| by
     apply (UInt8.le_ofNat_iff (by decide)).mpr
     rwa [UInt8.toNat_ofNat_of_lt' (by grind only)]
 
@@ -75,7 +75,7 @@ def toInteger : SimpleIOData → Integer
   ⟨n.toInt8.toInt16, pf₁, pf₂⟩
 
 instance : Coe SimpleIOData Integer :=
-  ⟨SimpleIOData.toInteger⟩
+  ⟨toInteger⟩
 
 end SimpleIOData
 
