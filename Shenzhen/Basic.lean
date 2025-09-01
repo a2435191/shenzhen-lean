@@ -9,15 +9,7 @@ import Shenzhen.SimpleIOData
 import Shenzhen.Util
 import Shenzhen.XBusEffects
 
-open Compile
-open MCParser
-open MC4000
-
-
-
-
-
-
+open MC4000 in
 #eval
   let m := 3
   --                           mov p0 x1
