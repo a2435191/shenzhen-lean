@@ -78,7 +78,7 @@ structure MC4000 where
   {m : outParam Nat}
   [inst : NeZero m]
   instrs : Vector (ConditionalFlag × Instruction m) m
-  state : State m := .init m
+  -- state : State m := .init m
 deriving Repr
 
 namespace MC4000
@@ -108,8 +108,7 @@ instance mk'.instDecidablePred : DecidablePred mk'.jmpLabelsInBounds :=
 /-- A more convenient constructor for `MC4000` with default `by decide`
     proofs. -/
 def mk'
-    (hm₁ : instrs.size ≠ 0 := by decide) (hm₂ : mk'.jmpLabelsInBounds instrs := by decide)
-    (state : State instrs.size := @State.init _ ⟨hm₁⟩) :=
+    (hm₁ : instrs.size ≠ 0 := by decide) (hm₂ : mk'.jmpLabelsInBounds instrs := by decide) :=
   let m := instrs.size
   let instrs' : Array (ConditionalFlag × Instruction m) :=
     instrs.attach.map fun ⟨(f, i), h⟩ => Prod.mk f <| match i with
@@ -119,9 +118,11 @@ def mk'
       | .mov x y => .mov x y | .add x => .add x | .sub x => .sub x | .mul x => .mul x | .dgt x => .dgt x
       | .dst x y => .dst x y
       | .teq x y => .teq x y | .tgt x y => .tgt x y | .tlt x y => .tlt x y | .tcp x y => .tcp x y
-  @MC4000.mk m ⟨hm₁⟩ ⟨instrs', by rw [Array.size_map, Array.size_attach]⟩ state
+  @MC4000.mk m ⟨hm₁⟩ ⟨instrs', by rw [Array.size_map, Array.size_attach]⟩
 
 end mk'
+
+namespace State
 
 /-! Instruction effects -/
 

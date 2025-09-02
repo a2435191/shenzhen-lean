@@ -13,37 +13,13 @@ structure Conns (χ : Type u) (ψ : Type v) where
   edges : List (List (χ × ψ)) -- each edge is `(chip, pin)`
   nontrivial : ∀ edge ∈ edges, edge.length ≥ 2 := by decide
   nodupChips : ∀ edge ∈ edges, List.Nodup (edge.unzip.fst) := by decide
-  disjoint : ∀ x, Subsingleton { i : Fin edges.length // x ∈ edges[i] } := by decide
+  disjoint : ∀ i j : Fin edges.length, i ≠ j → ∀ x ∈ edges[i], x ∉ edges[j] := by decide
 deriving Repr
 
 namespace Conns
 
 instance : Inhabited (Conns χ ψ) :=
-  ⟨[], nofun, nofun, fun _ => ⟨nofun⟩⟩
-
-instance [DecidableEq α] {l₁ l₂ : List α} : Decidable (l₁.Disjoint l₂) :=
-  decidable_of_iff (∀ x ∈ l₁, ¬x ∈ l₂) Iff.rfl
-
-theorem _root_.forall_mem_comm' [Membership α γ] {S : γ} {p : α → β → Prop} : (∀ a ∈ S, ∀ b, p a b) ↔ ∀ b, ∀ a ∈ S, p a b := by
-  constructor <;> intros <;> simp_all
-
-instance [DecidableEq α] {l : List (List α)} : Decidable (∀ (x : α), Subsingleton { i : Fin l.length // x ∈ l[i] }) :=
-  let n := l.length
-  -- TODO: this is inefficient
-  letI := (List.finRange n).product (List.finRange n)
-    |>.all fun (i, j) => i = j || l[i].Disjoint l[j]
-  decidable_of_bool this <| by
-    simp only [List.all_eq_true, Bool.or_eq_true, decide_eq_true_eq, Prod.forall,
-      List.pair_mem_product, List.mem_finRange, and_self, forall_const, subsingleton_iff,
-      Subtype.forall, Subtype.mk.injEq, this, n]
-    rw [forall_comm (α := α)]
-    simp only [forall_mem_comm' (β := Fin l.length)]
-    apply forall_congr'; intro i
-    apply forall_congr'; intro j
-    simp_rw [imp_iff_not_or, or_comm, ←or_assoc, or_comm, or_assoc, forall_or_left]
-    apply or_congr_right
-    apply forall_congr'; intro x
-    tauto
+  ⟨[], nofun, nofun, nofun⟩
 
 -- TODO: cache this result ahead of time in `Board` in a `Std.HashMap` or something
 /-- Get the neighbors to `(chip, pin)`, including `(chip, pin)` itself. -/
@@ -54,18 +30,19 @@ def toNeighbors [DecidableEq χ] [DecidableEq ψ] (conns : Conns χ ψ) (chip : 
   | x :: y :: rest => by
     exfalso
     simp only [List.filter_eq_cons_iff, decide_eq_true_eq] at h
-    have ⟨l₁, l₂, h₁, h₂, h₃, l₂₁, l₂₂, h₄, h₅, h₆, h₇⟩ := h
-    rw [h₄] at h₁
-    apply absurd ((conns.disjoint (chip, pin)).allEq ?_ ?_) ?_
-    set_option linter.unnecessarySimpa false in
-    · refine ⟨⟨l₁.length, ?_⟩, ?_⟩
-      <;> simpa [h₁]
-    · refine ⟨⟨l₁.length + l₂₁.length + 1, ?_⟩, ?_⟩
-      <;> simpa [h₁, Nat.add_assoc, Nat.add_lt_add_iff_left]
+    have ⟨l₁, l₂, hl₁, _, hx, l₂₁, _, hl₂, _, hy, _⟩ := h
+    rw [hl₂] at hl₁
+    absurd (conns.disjoint ⟨l₁.length, ?_⟩ ⟨l₁.length + l₂₁.length + 1, ?_⟩) ?_
+    · simp [hl₁]
+    · simp [hl₁, Nat.add_assoc]
     · intro hn
-      repeat injection hn with hn
+      injection hn with hn
       rw [Nat.add_assoc, Nat.left_eq_add] at hn
       contradiction
+    · push_neg
+      use (chip, pin)
+      simp_rw [hl₁, Fin.getElem_fin, List.getElem_of_append rfl rfl, hx]
+      simpa [hl₁, Nat.add_assoc, Nat.add_lt_add_iff_left]
 
 end Conns
 
@@ -127,5 +104,9 @@ open MC4000 MC4000.State in
 
 /-- Step a board's states one cycle, which is the time it takes to complete a single `nop` instruction. -/
 def step (board : Board) (states : board.States) : board.States :=
-  let chipStates := states.chipStates
+  let chipStates := (states.chipStates).mapFinIdx fun i ⟨m, fx⟩ hi =>
+    let := fx.run' sorry <| Vector.ofFn fun j =>
+      let neighbors := board.simpleIOConns.toNeighbors ⟨i, hi⟩ j
+      sorry
+    ()
   sorry
