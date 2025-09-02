@@ -132,14 +132,6 @@ abbrev PrevSimpleIOIn :=
 abbrev InstructionEffects (m : Nat) :=
   ReaderT PrevSimpleIOIn $ StateT (State m) $ XBusEffects XBus Integer
 
-@[inline] def InstructionEffects.run {m} (initState : State m)
-    (prevSimpleIOIn : PrevSimpleIOIn) (fx : InstructionEffects m α) : XBusEffects XBus Integer (α × State m) :=
-  fx prevSimpleIOIn initState
-
-@[inline] def InstructionEffects.run' {m} (initState : State m)
-    (prevSimpleIOIn : PrevSimpleIOIn) (fx : InstructionEffects m Unit) : XBusEffects XBus Integer (State m) :=
-  Prod.snd <$> fx prevSimpleIOIn initState
-
 /-- Get the state after executing `instr`, possibly wrapped in XBus pin reads/a peek/a write. -/
 def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit := do
   -- increment the IP separately
@@ -150,7 +142,7 @@ def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit :
     let n ← readRI ri
     modify ({ · with sleep := n.clampToNat })
   | .slx pin =>
-    fun _ state => .peek pin <| return ((), state)
+    fun _ state => .peek pin ((), state)
   | .jmp lbl => modify ({ · with ip := lbl })
   | .mov ri r => do
     let n ← readRI ri
@@ -197,3 +189,13 @@ where
     let a ← readRI ri₁
     let b ← readRI ri₂
     modify (State.setCondIff (f a b))
+
+namespace InstructionEffects
+
+variable {m} (initState : State m) (prevSimpleIOIn : PrevSimpleIOIn)
+
+@[inline] def run (fx : InstructionEffects m α) : XBusEffects XBus Integer (α × State m) :=
+  fx prevSimpleIOIn initState
+
+@[inline] def run' (fx : InstructionEffects m Unit) : XBusEffects XBus Integer (State m) :=
+  Prod.snd <$> fx prevSimpleIOIn initState
