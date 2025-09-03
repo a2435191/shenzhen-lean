@@ -54,55 +54,41 @@ where
 
 end XBusEffects
 
--- def XBusEffectsT (ξ : Type u) (δ : Type v) (m : Type max u v w → Type x) (α : Type w) :=
+-- def XBusEffectsT (ξ : Type u) (δ : Type v) (m : Type w → Type x) (α : Type w) :=
+--   XBusEffects ξ δ (m α)
+
+-- def XBusEffectsT' (ξ : Type u) (δ : Type v) (m : Type max u v w → Type x) (α : Type w) :=
 --   m (XBusEffects ξ δ α)
+
+-- def XBusEffectsT'.mk (x : m (XBusEffects ξ δ α)) : XBusEffectsT' ξ δ m α :=
+--   x
+
 
 -- namespace XBusEffectsT
 
--- variable {ξ : Type u} {δ : Type v} {m : Type max u v w → Type x} {α : Type w}
-
--- def mk (x : m (XBusEffects ξ δ α)) : XBusEffectsT ξ δ m α :=
---   x
-
--- @[always_inline] protected def pure [Pure m] (a : α) : XBusEffectsT ξ δ m α :=
---   .mk <| Pure.pure (.pure a)
-
--- def bindCont [Monad m] (f : α → XBusEffectsT ξ δ m β) : XBusEffects ξ δ α → m (XBusEffects ξ δ β)
--- | .pure a => f a
--- | .write pin d next => do
---   match ←f next with
---   | .pure b => pure <| .write pin d b
---   | next' => pure next'
--- | .read pin next => pure (.read pin fun d => sorry)
--- | .peek pin next => do
---   match ←f next with
---   | .pure b => pure <| .peek pin b
---   | next' => pure next'
-
--- @[always_inline] protected def bind [Monad m] (mx : XBusEffectsT ξ δ m α) (f : α → XBusEffectsT ξ δ m β) : XBusEffectsT ξ δ m β := .mk do
---   match (←mx) with
---   | .pure a => f a
---   | .write pin d next =>
---     sorry
---   | .read pin next =>
---     sorry
---   | .peek pin next =>
---     sorry
-
--- @[always_inline] protected partial def bind' (mx : XBusEffectsT ξ δ Option α) (f : α → XBusEffectsT ξ δ Option β) : XBusEffectsT ξ δ Option β := .mk do
---   match ←mx with
---   | .pure a => f a
---   | .write pin d next =>
---     match ←f next with
---     | .pure b => pure <| .write pin d b
---     | next' => pure next'
---   | .read pin next =>
---     pure <| .read pin fun d =>
+-- abbrev M := ReaderM String
+-- protected def bind' (ma : XBusEffectsT ξ δ M α) (f : α → XBusEffectsT ξ δ M β) : XBusEffectsT ξ δ M β :=
+--   match ma with
+--   | XBusEffects.pure a =>
+--     .pure fun s =>
+--       let := f (a s)
 --       sorry
---   | .peek pin next =>
---     match ←f next with
---     | .pure b => pure <| .peek pin b
---     | next' => pure next'
+--   | XBusEffects.write pin d next =>
+--     sorry
+--     -- .write pin d
+--   | XBusEffects.read pin next =>
+--     sorry
+--     -- .read pin fun d => XBusEffectsT.bind' (next d) f
+--   | XBusEffects.peek pin next => sorry
 
--- #print OptionT.bind
--- #print ExceptT.bind
+-- -- def bind.go {ξ : Type u} {δ : Type v} {α : Type w}
+
+-- protected def pure [Pure m] : α → XBusEffectsT ξ δ m α
+-- | a => XBusEffects.pure (Pure.pure a)
+
+
+-- instance [Monad m] : Monad (XBusEffectsT ξ δ m) where
+--   pure := .pure
+--   bind := .bind
+
+-- end XBusEffectsT

@@ -129,73 +129,110 @@ namespace State
 abbrev PrevSimpleIOIn :=
   Vector SimpleIOData numSimpleIOPins
 
-abbrev InstructionEffects (m : Nat) :=
-  ReaderT PrevSimpleIOIn $ StateT (State m) $ XBusEffects XBus Integer
+abbrev InstructionEffects (m : Nat) (α : Type) :=
+  XBusEffects XBus Integer (ReaderT PrevSimpleIOIn (StateM (State m)) α)
 
-/-- Get the state after executing `instr`, possibly wrapped in XBus pin reads/a peek/a write. -/
-def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit := do
-  -- increment the IP separately
-  match instr with | .jmp _ => return; | _ => modify State.incIp;
-  match instr with
-  | .nop => return
-  | .slp ri => do
-    let n ← readRI ri
-    modify ({ · with sleep := n.clampToNat })
-  | .slx pin =>
-    fun _ state => .peek pin ((), state)
-  | .jmp lbl => modify ({ · with ip := lbl })
-  | .mov ri r => do
-    let n ← readRI ri
-    match r with
-    | .null => return
-    | .internal .acc => modify ({· with acc := n })
-    | .simpleIO pin => setSimpleIOOut pin n.toSimpleIOData
-    | .xBus pin => fun _ state => .write pin n ((), state)
-  | .add ri => modifyAcc ri Add.add
-  | .sub ri => modifyAcc ri Sub.sub
-  | .mul ri => modifyAcc ri Mul.mul
-  | .not => modify fun state => { state with acc := ~~~state.acc }
-  | .dgt ri => modifyAcc ri Integer.dgt
-  | .dst ri₁ ri₂ => do
-    let target ← readRI ri₁
-    let new ← readRI ri₂
-    modify fun state => { state with acc := Integer.dst state.acc target new }
-  | .teq ri₁ ri₂ => modifyCond ri₁ ri₂ (· = ·)
-  | .tlt ri₁ ri₂ => modifyCond ri₁ ri₂ (· < ·)
-  | .tgt ri₁ ri₂ => modifyCond ri₁ ri₂ (· > ·)
-  | .tcp ri₁ ri₂ => do
-    let a ← readRI ri₁
-    let b ← readRI ri₂
-    modify ({ · with cond := ⟨a > b, a < b⟩ })
-where
-  @[inline] setSimpleIOOut (pin : SimpleIO) (val : SimpleIOData) :=
-    modify fun state => { state with simpleIOOut := Vector.set state.simpleIOOut pin val }
+-- instance {m} : Monad (InstructionEffects m) where
+--   pure {α} a := .pure (return a)
+--   bind {α β} x f := @go α β f x
+-- where go {α β} f
+--   | .pure ma => .pure fun r s =>
+--     let (a, s') := ma r s
+--     (sorry, s')
+--   | .read pin next => sorry
+--   | .write pin d next => sorry
+--   | .peek pin next => sorry
 
-  @[inline] readRI : RegOrInt → InstructionEffects m Integer
-    | .int n => return n
-    | .null => return 0
-    | .internal .acc => do return (←get).acc
-    | .simpleIO pin => do
-      setSimpleIOOut pin 0
-      let prevSimpleIO ← read
-      return prevSimpleIO[pin]
-    | .xBus pin => fun _ state =>
-      .read pin fun d => return (d, state)
+-- instance {m} : Coe Unit (InstructionEffects m Unit) where
+--   coe _ := .pure (return)
 
-  @[specialize, inline] modifyAcc ri f := do
-    modify (State.modifyAcc f (←readRI ri))
+-- abbrev InstructionEffects (m : Nat) (α : Type) :=
+--   XBusEffects XBus Integer (ReaderT PrevSimpleIOIn $ StateM (State m) α)
+--   -- ReaderT PrevSimpleIOIn $ StateT (State m) $ XBusEffects XBus Integer
 
-  @[specialize, inline] modifyCond ri₁ ri₂ (f : Integer → Integer → Bool) := do
-    let a ← readRI ri₁
-    let b ← readRI ri₂
-    modify (State.setCondIff (f a b))
+-- /-- Get the state after executing `instr`, possibly wrapped in XBus pin reads/a peek/a write. -/
+-- def instructionEffects {m} (instr : Instruction m) : XBusEffects XBus Integer (ReaderT PrevSimpleIOIn (StateM (State m)) Unit) := do
+--   -- increment the IP separately
+--   -- match instr with | .jmp _ => .pure sorry; | _ => sorry
+--   let readRI : Instruction.RegOrInt InternalReg XBus SimpleIO →
+--   match instr with
+--   | .nop => return (modify State.incIp)
+--   | .slp ri => sorry
+--   | .slx pin => sorry
+--   | .jmp lbl => sorry
+--   | .mov ri r => sorry
+--   | .add ri => sorry
+--   | .sub ri => sorry
+--   | .mul ri => sorry
+--   | .not => sorry
+--   | .dgt ri => sorry
+--   | .dst ri₁ ri₂ => sorry
+--   | .teq ri₁ ri₂ => sorry
+--   | .tlt ri₁ ri₂ => sorry
+--   | .tgt ri₁ ri₂ => sorry
+--   | .tcp ri₁ ri₂ => sorry
+--   -- sorry
+-- --   match instr with | .jmp _ => return; | _ => modify State.incIp;
+-- --   match instr with
+-- --   | .nop => return
+-- --   | .slp ri => do
+-- --     let n ← readRI ri
+-- --     modify ({ · with sleep := n.clampToNat })
+-- --   | .slx pin =>
+-- --     fun _ state => .peek pin ((), state)
+-- --   | .jmp lbl => modify ({ · with ip := lbl })
+-- --   | .mov ri r => do
+-- --     let n ← readRI ri
+-- --     match r with
+-- --     | .null => return
+-- --     | .internal .acc => modify ({· with acc := n })
+-- --     | .simpleIO pin => setSimpleIOOut pin n.toSimpleIOData
+-- --     | .xBus pin => fun _ state => .write pin n ((), state)
+-- --   | .add ri => modifyAcc ri Add.add
+-- --   | .sub ri => modifyAcc ri Sub.sub
+-- --   | .mul ri => modifyAcc ri Mul.mul
+-- --   | .not => modify fun state => { state with acc := ~~~state.acc }
+-- --   | .dgt ri => modifyAcc ri Integer.dgt
+-- --   | .dst ri₁ ri₂ => do
+-- --     let target ← readRI ri₁
+-- --     let new ← readRI ri₂
+-- --     modify fun state => { state with acc := Integer.dst state.acc target new }
+-- --   | .teq ri₁ ri₂ => modifyCond ri₁ ri₂ (· = ·)
+-- --   | .tlt ri₁ ri₂ => modifyCond ri₁ ri₂ (· < ·)
+-- --   | .tgt ri₁ ri₂ => modifyCond ri₁ ri₂ (· > ·)
+-- --   | .tcp ri₁ ri₂ => do
+-- --     let a ← readRI ri₁
+-- --     let b ← readRI ri₂
+-- --     modify ({ · with cond := ⟨a > b, a < b⟩ })
+-- -- where
+-- --   @[inline] setSimpleIOOut (pin : SimpleIO) (val : SimpleIOData) :=
+-- --     modify fun state => { state with simpleIOOut := Vector.set state.simpleIOOut pin val }
 
-namespace InstructionEffects
+-- --   @[inline] readRI : RegOrInt → InstructionEffects m Integer
+-- --     | .int n => return n
+-- --     | .null => return 0
+-- --     | .internal .acc => do return (←get).acc
+-- --     | .simpleIO pin => do
+-- --       setSimpleIOOut pin 0
+-- --       let prevSimpleIO ← read
+-- --       return prevSimpleIO[pin]
+-- --     | .xBus pin => fun _ state =>
+-- --       .read pin fun d => return (d, state)
 
-variable {m} (initState : State m) (prevSimpleIOIn : PrevSimpleIOIn)
+-- --   @[specialize, inline] modifyAcc ri f := do
+-- --     modify (State.modifyAcc f (←readRI ri))
 
-@[inline] def run (fx : InstructionEffects m α) : XBusEffects XBus Integer (α × State m) :=
-  fx prevSimpleIOIn initState
+-- --   @[specialize, inline] modifyCond ri₁ ri₂ (f : Integer → Integer → Bool) := do
+-- --     let a ← readRI ri₁
+-- --     let b ← readRI ri₂
+-- --     modify (State.setCondIff (f a b))
 
-@[inline] def run' (fx : InstructionEffects m Unit) : XBusEffects XBus Integer (State m) :=
-  Prod.snd <$> fx prevSimpleIOIn initState
+-- -- namespace InstructionEffects
+
+-- -- variable {m} (initState : State m) (prevSimpleIOIn : PrevSimpleIOIn)
+
+-- -- @[inline] def run (fx : InstructionEffects m α) : XBusEffects XBus Integer (α × State m) :=
+-- --   fx prevSimpleIOIn initState
+
+-- -- @[inline] def run' (fx : InstructionEffects m Unit) : XBusEffects XBus Integer (State m) :=
+-- --   Prod.snd <$> fx prevSimpleIOIn initState
