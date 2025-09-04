@@ -6,7 +6,7 @@ deriving instance Fintype for UInt8
 structure SimpleIOData where
   n : UInt8
   le : n ≤ 100 := by decide
-deriving Fintype
+deriving Fintype, DecidableEq
 
 namespace SimpleIOData
 
@@ -76,6 +76,12 @@ def toInteger : SimpleIOData → Integer
 
 instance : Coe SimpleIOData Integer :=
   ⟨toInteger⟩
+
+@[inline] instance : LE SimpleIOData where
+  le x y := x.n ≤ y.n
+
+@[inline] instance : DecidableLE SimpleIOData :=
+  fun x y => if h : x.n ≤ y.n then .isTrue h else .isFalse h
 
 end SimpleIOData
 

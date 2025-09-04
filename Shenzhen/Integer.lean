@@ -168,13 +168,11 @@ instance : Neg Integer where
         (neg_le_neg_iff (by decide) this).mpr le
     }
 
-instance : LT Integer :=
+@[inline] instance : LT Integer :=
   ⟨(·.n < ·.n)⟩
 
-instance : DecidableLT Integer :=
-  fun ⟨a, _, _⟩ ⟨b, _, _⟩ =>
-    if h : a < b then .isTrue h
-    else .isFalse h
+@[inline] instance : DecidableLT Integer :=
+  fun ⟨a, _, _⟩ ⟨b, _, _⟩ => if h : a < b then .isTrue h else .isFalse h
 
 open Lean in
 instance : ToExpr Integer where
