@@ -3,8 +3,6 @@ import Shenzhen.Util
 
 namespace Compile
 
--- TODO : invoke this via a macro/elab that does this stuff at compile time
-
 @[specialize] private def next (arr : Array α) (p : α → Bool) (i : Fin arr.size)
     (h : ∃ a ∈ arr, p a) : Fin arr.size :=
   List.finRange arr.size
@@ -30,14 +28,12 @@ def nextInstructionLine {lines : Array (MCParser.Line Λ ρ ξ ι)}
 variable (lines : Array (MCParser.Line Λ ρ ξ ι)) [BEq Λ] [Hashable Λ]
 
 inductive CompileException
-| noInstructions
 | duplicateLabels (i : Fin lines.size)
 | unknownLabelInJmp (i : Fin lines.size)
-deriving Inhabited, Repr
+deriving Repr
 
 instance : ToString (CompileException arr) where
   toString
-  | .noInstructions => "No instructions found"
   | .duplicateLabels i => s!"There's a duplicate label at line {i}"
   | .unknownLabelInJmp i => s!"There's an unknown label in the `jmp` instruction at line {i}"
 
@@ -59,9 +55,10 @@ def labelPositions (h : ∃ line ∈ lines, line.instruction.isSome) : Except (C
 
 structure Compiled (ρ : Type u) (ξ : Type v) (ι : Type w) where
   m : Nat
-  [inst : NeZero m]
   instrs : Vector (ConditionalFlag × Instruction (Fin m) ρ ξ ι) m
-deriving Repr
+deriving Repr, Inhabited
+
+namespace Compiled
 
 private instance instZeroNat : Zero Nat :=
   inferInstance
@@ -69,15 +66,14 @@ private instance instZeroNat : Zero Nat :=
 private instance instDecidableNeNat {a b : Nat} : Decidable (a ≠ b) :=
   inferInstance
 
-section
-
 open Lean
 
 variable {ρ : Type u} {ξ : Type v} {ι : Type w}
          [ToLevel.{u}] [ToLevel.{v}] [ToLevel.{w}]
          [ToExpr ρ] [ToExpr ξ] [ToExpr ι]
+variable {m : Nat}
 
-local instance instToExprProd : ToExpr (ConditionalFlag × Instruction (Fin m) ρ ξ ι) :=
+private instance instToExprProd : ToExpr (ConditionalFlag × Instruction (Fin m) ρ ξ ι) :=
   @instToExprProdOfToLevel ConditionalFlag (Instruction (Fin m) ρ ξ ι)
     _ ({ toLevel := Level.mkNaryMax [toLevel.{u}, toLevel.{v}, toLevel.{w}] }) _ _
 
@@ -88,14 +84,9 @@ instance : ToExpr (Compiled ρ ξ ι) :=
     toExpr
     | { m, instrs, .. } =>
       let mExpr := mkNatLit m
-      let zeroExpr := mkNatLit 0
-      let instExpr := mkApp4 (mkConst ``NeZero.mk [0]) Nat.mkType (mkConst ``instZeroNat) mExpr <|
-        Meta.mkDecideProof'
-          (mkApp3 (mkConst ``Ne [1]) Nat.mkType mExpr zeroExpr)
-          (mkApp2 (mkConst ``instDecidableNeNat) mExpr zeroExpr)
       let instrsType := (instToExprProd (ρ := ρ) (ξ := ξ) (ι := ι) (m := m)).toTypeExpr
       let instrsExpr := Meta.mkVector instrsType (instrs.toList.map toExpr) m (.mkNaryMax levels)
-      mkAppN (mkConst ``Compiled.mk levels) (typeParams ++ #[mExpr, instExpr, instrsExpr])
+      mkAppN (mkConst ``Compiled.mk levels) (typeParams ++ #[mExpr, instrsExpr])
   }
 
 -- elab "test" : term =>
@@ -107,14 +98,14 @@ instance : ToExpr (Compiled ρ ξ ι) :=
 
 -- #eval test
 
-end
+def empty : Compiled ρ ξ ι :=
+  { m := 0, instrs := #v[] }
 
-instance : Inhabited (Compiled ρ ξ ι) :=
-  ⟨1, #v[(.none, .nop)]⟩
+end Compiled
 
 /-- Compile a vector of `MCParser.Line`s to a vector of `ConditionalFlag × Instruction`s.
 All lines without instructions are discarded. -/
-def compile : Except (CompileException lines) (Compiled ρ ξ ι) := do
+def compile : Except (CompileException lines) (Compiled ρ ξ ι) :=
   let n := lines.size
 
   let noBlanks := lines.zip (Array.ofFn (n := n) id)|>.filterMap fun
@@ -122,11 +113,10 @@ def compile : Except (CompileException lines) (Compiled ρ ξ ι) := do
     | ({ instruction := some instr, condition, .. }, i) => some (i, condition, instr)
 
   let m := noBlanks.size
-  if h : m = 0 then
-    .error .noInstructions
+  if h : m = 0 then return .empty
   else
+    have h := Nat.zero_lt_of_ne_zero h
     have := by
-      replace h := Nat.zero_lt_of_ne_zero h
       have ⟨(line, i), hmem, (i', flag, instr), h⟩ := Array.size_filterMap_pos_iff.mp h
       refine ⟨line, (Array.of_mem_zip hmem).left, ?_⟩
       split at h
@@ -135,6 +125,7 @@ def compile : Except (CompileException lines) (Compiled ρ ξ ι) := do
         rw [Prod.mk.injEq] at h'
         rw [h'.left]
         rfl
+    do
     let labelMap ← labelPositions lines this
 
     let instrs ← noBlanks.toVector.mapM fun (i, cond, instr) => do
@@ -145,20 +136,14 @@ def compile : Except (CompileException lines) (Compiled ρ ξ ι) := do
         match noBlanks.findFinIdx? (·.1 = targetIdx) with
         | none =>
           -- since we already ran `labelPositions`, there must be some instruction
+          have : Inhabited (Fin noBlanks.size) := ⟨0, h⟩
           unreachable!
         | some k => .ok k
       return (cond, instr')
 
-    return Compiled.mk m instrs (inst := ⟨h⟩)
-
-/-- Compile or `panic!`. -/
-@[reducible]
-def compile! : Compiled ρ ξ ι :=
-  match compile lines with
-  | .error e => panic! toString e
-  | .ok res => res
+    return Compiled.mk m instrs
 
 end Compile
 
 def MC4000.ofCompiled : Compile.Compiled InternalReg XBus SimpleIO → MC4000
-| { m, instrs, .. } => { m, instrs }
+| { m, instrs } => { m, instrs }

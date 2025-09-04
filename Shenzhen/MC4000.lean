@@ -24,6 +24,9 @@ structure State (numInstr : Nat) where
   ip : Fin numInstr
   sleep : Nat
   simpleIOOut : Vector SimpleIOData numSimpleIOPins
+  /-- Whether an instruction has been executed already. Used
+  to implement the `@` conditional (`ConditionalFlag.once`). -/
+  hasRun : Vector Bool numInstr
 deriving Repr
 
 abbrev Instruction (numInstr : Nat) :=
@@ -36,21 +39,23 @@ namespace State
 
 instance {m} : ToString (State m) where
   toString
-  | { acc, cond := c, ip, sleep, simpleIOOut } =>
+  | { acc, cond := c, ip, sleep, simpleIOOut, hasRun } =>
     let condStr := match c with
       | ⟨true, false⟩ => "+"
       | ⟨false, true⟩ => "-"
       | ⟨false, false⟩ => "none"
       | ⟨true, true⟩ => "?both true?"
     s!"[acc = {acc}; ip = {ip}; sleep = {sleep}; \
-    cond = {condStr}; simpleIOOut = ({simpleIOOut[0]}, {simpleIOOut[1]})]"
+    cond = {condStr}; simpleIOOut = ({simpleIOOut[0]}, {simpleIOOut[1]})]; \
+    hasRun = {hasRun.toList.zipIdx.filter Prod.fst}"
 
 def init (m) [NeZero m] : State m :=
   { acc := 0,
     cond := ⟨false, false⟩,
     ip := 0,
     sleep := 0,
-    simpleIOOut := #v[0, 0] }
+    simpleIOOut := #v[0, 0],
+    hasRun := Vector.replicate m false }
 
 instance [NeZero m] : Inhabited (State m) :=
   ⟨init m⟩
@@ -70,15 +75,20 @@ def setCondIff (b : Bool) (state : State m) :=
 def incIp (state : State m) : State m :=
   { state with ip := state.ip.succ' }
 
+@[inline]
+def flagEnabled (state : State m) : ConditionalFlag → Bool
+| .none => true
+| .pos => state.cond.posEnabled
+| .neg => state.cond.negEnabled
+| .once => !state.hasRun[state.ip]
+
 end MC4000.State
 
 open MC4000 in
 structure MC4000 where
   /-- The number of instructions on the chip. -/
   {m : outParam Nat}
-  [inst : NeZero m]
   instrs : Vector (ConditionalFlag × Instruction m) m
-  -- state : State m := .init m
 deriving Repr
 
 namespace MC4000
@@ -107,18 +117,17 @@ instance mk'.instDecidablePred : DecidablePred mk'.jmpLabelsInBounds :=
 
 /-- A more convenient constructor for `MC4000` with default `by decide`
     proofs. -/
-def mk'
-    (hm₁ : instrs.size ≠ 0 := by decide) (hm₂ : mk'.jmpLabelsInBounds instrs := by decide) :=
+def mk' (h : mk'.jmpLabelsInBounds instrs := by decide) :=
   let m := instrs.size
   let instrs' : Array (ConditionalFlag × Instruction m) :=
-    instrs.attach.map fun ⟨(f, i), h⟩ => Prod.mk f <| match i with
-      | .jmp «to» => .jmp ⟨«to», hm₂ _ h⟩
+    instrs.attach.map fun ⟨(f, i), h'⟩ => Prod.mk f <| match i with
+      | .jmp «to» => .jmp ⟨«to», h _ h'⟩
       | .nop => .nop | .not => .not
       | .slp x => .slp x | .slx x => .slx x
       | .mov x y => .mov x y | .add x => .add x | .sub x => .sub x | .mul x => .mul x | .dgt x => .dgt x
       | .dst x y => .dst x y
       | .teq x y => .teq x y | .tgt x y => .tgt x y | .tlt x y => .tlt x y | .tcp x y => .tcp x y
-  @MC4000.mk m ⟨hm₁⟩ ⟨instrs', by rw [Array.size_map, Array.size_attach]⟩
+  @MC4000.mk m ⟨instrs', by rw [Array.size_map, Array.size_attach]⟩
 
 end mk'
 
