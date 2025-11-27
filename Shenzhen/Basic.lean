@@ -20,10 +20,16 @@ namespace Conns
 instance : Inhabited (Conns χ ψ) :=
   ⟨#[], nofun, nofun, nofun⟩
 
+variable [DecidableEq χ] [DecidableEq ψ]
+
 -- TODO: cache this result ahead of time in `Board` in a `Std.HashMap` or something
 /-- Get the index of the neighbors to `(chip, pin)`, including `(chip, pin)` itself. -/
-def edgeIdx [DecidableEq χ] [DecidableEq ψ] (conns : Conns χ ψ) (chip : χ) (pin : ψ) : Option (Fin (conns.edges.size)) :=
+def edgeIdx (conns : Conns χ ψ) (chip : χ) (pin : ψ) : Option (Fin (conns.edges.size)) :=
   conns.edges.findFinIdx? ((chip, pin) ∈ ·)
+
+-- TODO: compute this result ahead of time
+def areConnected (conns : Conns χ ψ) : χ × ψ → χ × ψ → Bool
+| u, v => conns.edges.any fun edge => u ∈ edge && v ∈ edge
 
 end Conns
 
@@ -35,9 +41,13 @@ structure Board where
   xBusConns : Conns (Fin n) MC4000.XBus
 deriving Repr
 
+structure Board.State where
+  m : Nat
+  xBusEffects : XBusEffects MC4000.XBus Integer (MC4000.State m)
+
 structure Board.States (b : Board) where
-  chipStates : Vector ((m : Nat) × MC4000.State.InstructionEffects m Unit) b.n
-  h : ∀ i : Fin b.n, chipStates[i].1 = b.chips[i].m
+  states : Vector Board.State b.n
+  hm : ∀ i : Fin b.n, states[i].m = b.chips[i].m
   simpleIOByEdge : Vector SimpleIOData b.simpleIOConns.edges.size
 
 /-- This is the "Touch Activated Light Controller" on page `CSM_TD_100650` of the manual.
@@ -46,10 +56,10 @@ For now (TODO), the input and output are simulated by more `MC4000`s. -/
 def lightController : Board :=
   let inputs : Array SimpleIOData := #[0, 0, 100, 0]
   let touch :=
-    let instrs := inputs.flatMap fun x => #[
+    let flagsAndInstrs := inputs.flatMap fun x => #[
       (.none, .mov (.int x) (.simpleIO 0)),
       (.none, .slp (.int 1))]
-    MC4000.mk' instrs
+    MC4000.mk' flagsAndInstrs
   let chip₁ := MC4000.ofCompiled mcc(
       teq acc 0
     + teq p0 100
@@ -73,23 +83,77 @@ def lightController : Board :=
     xBusConns := { edges := #[[(1, 1), (2, 0)]] }
   }
 
-open MC4000 MC4000.State in
-#eval
-  let m := 3
-  --                           mov p0 x1
-  let instr : Instruction 3 := .mov (.simpleIO 0) (.xBus 1)
-  let mfx := instructionEffects instr
-  --              values on connected simple I/O line: p0  p1
-  let fx := mfx |> InstructionEffects.run' (.init m) #v[35, 69]
-  return fx
+-- open MC4000 MC4000.State in
+-- #eval Id.run do
+--   let n := 4
+--   let m := 6
+--   let lc := lightController
+--   let states : Vector ((m : Nat) × State m) n := #v[
+--     ⟨8, .init 8⟩,
+--     ⟨6, .init 6⟩,
+--     ⟨6, .init 6⟩,
+--     ⟨2, .init 2⟩]
+--   let simpleIOs : Array SimpleIOData := lc.simpleIOConns.edges.map fun edge =>
+--     edge.map (fun (chip, pin) => states[chip]!.snd.simpleIOOut[pin])
+--       |> @List.max? _ maxOfLe
+--       |>.getD 0
+--   for h : i in [0:n] do
+--     let ⟨m, state⟩ := states[i]
+--     let (flag, instr) := lc.chips[i].instrs[state.ip]!
+--     let x :=
+--       if state.flagEnabled flag then
+--         some (instructionEffects instr)
+--       else none
+--     break
+--   -- let fx := Vector.ofFn (n := n) (fun i =>
+--   --   let ⟨m, state⟩ := states[i]
+--   --   let (flag, instr) := lc.chips[i].instrs[state.ip]!
+--   --   if state.flagEnabled flag then
+--   --     some <| Sigma.mk i $ (instructionEffects instr)
+--   --   else
+--   --     none)
 
--- def resolveXBus (fx : MC4000.State.Instru)
+@[inline, specialize]
+private def writer? (areNeighbors : Fin n × ξ → Fin n × ξ → Bool) (i : Fin n) (readPin : ξ) (candidates : Vector (Bool × XBusEffects ξ δ α) n) : Option (Fin n × ξ × δ × α) :=
+  candidates.zipIdx.attach.firstM fun ⟨((didStep, fx), j), h⟩ =>
+    letI j := Fin.mk j (Vector.mem_zipIdx' h).left
+    match didStep, fx with
+    | false, .write writePin d a =>
+      if areNeighbors (i, readPin) (j, writePin) then
+        some (j, writePin, d, a)
+      else none
+    | _, _ => none
+
+@[specialize]
+def resolveXBus (areNeighbors : Fin n × ξ → Fin n × ξ → Bool) (fx : Vector (XBusEffects ξ δ α) n)
+    : Vector (Bool × XBusEffects ξ δ α) n :=
+  (List.finRange n).foldl (init := ((Vector.replicate n false).zip fx)) fun v i =>
+    match v[i] with
+    | (true, _) | (false, .pure _) | (false, .write ..) => v
+    | (false, .read pin next) =>
+      match writer? areNeighbors i pin v with
+      | none => v
+      | some (j, _, d, a) => v.set i (true, next d) |>.set j (true, pure a)
+    | (false, .peek pin a) =>
+      match writer? areNeighbors i pin v with
+      | none => v
+      | some _ => v.set i (true, pure a)
 
 /-- Step a board's states one cycle, which is the time it takes to complete a single `nop` instruction. -/
-def step (board : Board) (states : board.States) : board.States :=
-  let chipStates := (states.chipStates).mapFinIdx fun i ⟨m, fx⟩ hi =>
-    let := fx.run' sorry <| Vector.ofFn fun j =>
-      let edgeIdx := board.simpleIOConns.edgeIdx ⟨i, hi⟩ j
+def step (board : Board) (states : board.States) : Array (Fin board.n × MC4000.XBus) × board.States :=
+  let allXBusEffects := Vector.ofFn (n := board.n) fun i =>
+    let prevSimpleIO := Vector.ofFn fun j =>
+      let edgeIdx := board.simpleIOConns.edgeIdx i j
       (states.simpleIOByEdge.get <$> edgeIdx).getD 0
-    ()
-  sorry
+    let { m, xBusEffects } := states.states[i]
+    Sigma.mk m <$> xBusEffects
+  let resolved := resolveXBus board.xBusConns.areConnected allXBusEffects
+  let hangs := ((Vector.ofFn id).zip resolved).toArray.filterMap fun
+    | (i, false, .read pin _)
+    | (i, false, .write pin ..) => some (i, pin)
+    | _ => none
+  (hangs, sorry)
+
+#check Sigma
+
+#print MC4000.State

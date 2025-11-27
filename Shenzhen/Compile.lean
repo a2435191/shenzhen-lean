@@ -3,27 +3,10 @@ import Shenzhen.Util
 
 namespace Compile
 
-@[specialize] private def next (arr : Array α) (p : α → Bool) (i : Fin arr.size)
-    (h : ∃ a ∈ arr, p a) : Fin arr.size :=
-  List.finRange arr.size
-    |>.map (· + i)
-    |>.filter (p arr[·])
-    |>.get ⟨0, by
-      simp only [Array.mem_iff_getElem] at h
-      have ⟨a, ⟨j, hj₁, hj₂⟩, ha⟩ := h
-      simp
-      exists ⟨j, hj₁⟩ - i
-      convert hj₂.symm ▸ ha
-      simp [Fin.sub_def, Fin.add_def,
-        ←Nat.sub_add_comm (Nat.le_of_lt i.isLt),
-        Nat.sub_add_cancel (Nat.le_add_right_of_le (Nat.le_of_lt i.isLt))]
-      exact Nat.mod_eq_of_lt hj₁⟩
-
 /-- Get the nearest (forward) index of a line that contains an instruction,
 including the current one. This could require wrapping around. -/
-def nextInstructionLine {lines : Array (MCParser.Line Λ ρ ξ ι)}
-    (i : Fin lines.size) (h : ∃ line ∈ lines, line.instruction.isSome) : Fin lines.size :=
-  next lines (·.instruction.isSome) i h
+def nextInstructionLine (lines : Vector (MCParser.Line Λ ρ ξ ι) n) (i : Fin n) : Option (Fin n) :=
+  lines.nextFinIdx? i fun _ line => line.instruction.isSome
 
 variable (lines : Array (MCParser.Line Λ ρ ξ ι)) [BEq Λ] [Hashable Λ]
 
@@ -37,11 +20,10 @@ instance : ToString (CompileException arr) where
   | .duplicateLabels i => s!"There's a duplicate label at line {i}"
   | .unknownLabelInJmp i => s!"There's an unknown label in the `jmp` instruction at line {i}"
 
-
 /-- Create a mapping from `Λ` labels to positions in the array.
 If a label is on a line with an instruction, it gets sent to the next
 instruction via `nextInstructionLine`. -/
-def labelPositions (h : ∃ line ∈ lines, line.instruction.isSome) : Except (CompileException lines) (Std.HashMap Λ (Fin lines.size)) :=
+def labelPositions : Except (CompileException lines) (Std.HashMap Λ (Fin lines.size)) :=
   lines.mapFinIdx (fun i a hi => (Fin.mk i hi, a))
     |>.foldlM (init := {}) fun map (i, line) =>
       match line.label with
@@ -50,12 +32,14 @@ def labelPositions (h : ∃ line ∈ lines, line.instruction.isSome) : Except (C
         if _ : map.contains s then
           .error (.duplicateLabels i)
         else
-          let next := nextInstructionLine i h
-          .ok (map.insert s next)
+          let next := nextInstructionLine lines.toVector i
+          have : Inhabited (Fin lines.size) := ⟨i⟩ -- TODO : prove that this is valid
+          .ok (map.insert s next.get!)
 
 structure Compiled (ρ : Type u) (ξ : Type v) (ι : Type w) where
   m : Nat
-  instrs : Vector (ConditionalFlag × Instruction (Fin m) ρ ξ ι) m
+  flags : Vector ConditionalFlag m
+  instrs : Vector (Instruction (Fin m) ρ ξ ι) m
 deriving Repr, Inhabited
 
 namespace Compiled
@@ -82,24 +66,25 @@ instance : ToExpr (Compiled ρ ξ ι) :=
   let typeParams := #[toTypeExpr ρ, toTypeExpr ξ, toTypeExpr ι]
   { toTypeExpr := mkAppN (mkConst ``Compiled levels) typeParams,
     toExpr
-    | { m, instrs, .. } =>
+    | { m, flags, instrs } =>
       let mExpr := mkNatLit m
-      let instrsType := (instToExprProd (ρ := ρ) (ξ := ξ) (ι := ι) (m := m)).toTypeExpr
-      let instrsExpr := Meta.mkVector instrsType (instrs.toList.map toExpr) m (.mkNaryMax levels)
-      mkAppN (mkConst ``Compiled.mk levels) (typeParams ++ #[mExpr, instrsExpr])
+      -- let instrsType := (instToExprProd (ρ := ρ) (ξ := ξ) (ι := ι) (m := m)).toTypeExpr
+      let flagsExpr := Meta.mkVector (toTypeExpr ConditionalFlag)
+        (flags.toList.map toExpr)
+      let instrsExpr := Meta.mkVector (toTypeExpr (Instruction (Fin m) ρ ξ ι))
+        (instrs.toList.map toExpr) (.mkNaryMax levels)
+      mkAppN (mkConst ``Compiled.mk levels) (typeParams ++ #[mExpr, flagsExpr, instrsExpr])
   }
 
 -- elab "test" : term =>
 --   let : Compiled MC4000.InternalReg MC4000.XBus MC4000.SimpleIO :=
---     { m := 3, instrs := #v[(.none, .nop), (.none, .nop), (.none, .nop)] }
+--     { m := 3, flags := #v[.none, .none, .none], instrs := #v[.nop, .nop, .nop] }
 --   return toExpr this
-
--- #synth Lean.ToExpr (ConditionalFlag × ConditionalFlag)
 
 -- #eval test
 
 def empty : Compiled ρ ξ ι :=
-  { m := 0, instrs := #v[] }
+  { m := 0, flags := #v[], instrs := #v[] }
 
 end Compiled
 
@@ -114,21 +99,11 @@ def compile : Except (CompileException lines) (Compiled ρ ξ ι) :=
 
   let m := noBlanks.size
   if h : m = 0 then return .empty
-  else
+  else do
     have h := Nat.zero_lt_of_ne_zero h
-    have := by
-      have ⟨(line, i), hmem, (i', flag, instr), h⟩ := Array.size_filterMap_pos_iff.mp h
-      refine ⟨line, (Array.of_mem_zip hmem).left, ?_⟩
-      split at h
-      · contradiction
-      · rename_i h'
-        rw [Prod.mk.injEq] at h'
-        rw [h'.left]
-        rfl
-    do
-    let labelMap ← labelPositions lines this
+    let labelMap ← labelPositions lines
 
-    let instrs ← noBlanks.toVector.mapM fun (i, cond, instr) => do
+    let flagsAndInstrs : Vector (ConditionalFlag × Instruction (Fin m) ρ ξ ι) m ← noBlanks.toVector.mapM fun (i, cond, instr) => do
       let instr' ← instr.mapΛM fun l => do
         let targetIdx : Fin n ← match labelMap[l]? with
           | none => .error (.unknownLabelInJmp i)
@@ -141,9 +116,10 @@ def compile : Except (CompileException lines) (Compiled ρ ξ ι) :=
         | some k => .ok k
       return (cond, instr')
 
-    return Compiled.mk m instrs
+    let (flags, instrs) := Vector.unzip flagsAndInstrs
+    return Compiled.mk m flags instrs
 
 end Compile
 
 def MC4000.ofCompiled : Compile.Compiled InternalReg XBus SimpleIO → MC4000
-| { m, instrs } => { m, instrs }
+| { m, flags, instrs } => { m, flags, instrs }

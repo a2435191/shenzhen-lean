@@ -170,7 +170,7 @@ elab "mcc(" e:sepBy(line, "\n", linebreak) ")" : term => do
     | .ok compiled => return toExpr compiled
 
 
--- #eval MC4000.ofCompiled mcc(
+-- #eval mcc(
 --     slx x0
 --     teq x0 p1
 --   + add 50

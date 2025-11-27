@@ -1,4 +1,4 @@
 import Shenzhen
 
-def main : IO Unit :=
-  IO.println s!"Hello, world!"
+def main : List String → IO Unit
+| _ => return

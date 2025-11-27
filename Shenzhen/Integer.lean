@@ -1,3 +1,4 @@
+import Shenzhen.IntLemmas
 import Shenzhen.Util
 import Mathlib.Tactic.DeriveFintype
 import Lean
@@ -28,6 +29,25 @@ instance : Inhabited Integer :=
 instance : Coe Integer Int16 :=
   ⟨(·.n)⟩
 
+lemma n_ne_minValue {x : Integer} : x.n ≠ .minValue := fun hn =>
+  have := hn ▸ x.ge
+  by contradiction
+
+lemma n_ne_minValue' {n : Int16} (le : n ≤ 999) (ge : -999 ≤ n) : n ≠ .minValue :=
+  @n_ne_minValue ⟨n, le, ge⟩
+
+@[inline] instance : LT Integer :=
+  ⟨(·.n < ·.n)⟩
+
+instance : DecidableLT Integer :=
+  fun x y => decidable_of_bool (x.n < y.n) decide_eq_true_iff
+
+@[inline] instance : LE Integer :=
+  ⟨(·.n ≤ ·.n)⟩
+
+instance : DecidableLE Integer :=
+  fun x y => decidable_of_bool (x.n ≤ y.n) decide_eq_true_iff
+
 open Int16
 
 def ofInt (n : Int) (h₁ : n ≤ 999) (h₂ : -999 ≤ n) :=
@@ -55,124 +75,92 @@ instance {n} : OfNat Integer n where
 /-- Lift a binary operation on `Int16`s to `Integer`s by clamping the result
 to `[-999, 999]`. -/
 @[inline, specialize]
-private def liftOp (f : Int16 → Int16 → Int16) : Integer → Integer → Integer
+private def clampLiftOp (f : Int16 → Int16 → Int16) : Integer → Integer → Integer
 | ⟨a, _, _⟩, ⟨b, _, _⟩ => ⟨
   Clamp.clamp (f a b) (-999) 999,
   Clamp.clamp_le_hi (by decide), Clamp.lo_le_clamp (by decide)⟩
 
-instance : Add Integer := ⟨Integer.liftOp Int16.add⟩
-instance : Sub Integer := ⟨Integer.liftOp Int16.sub⟩
-instance : Mul Integer := ⟨Integer.liftOp Int16.mul⟩
+@[inline] def add := clampLiftOp Int16.add
+@[inline] def sub := clampLiftOp Int16.sub
+@[inline] def mul := clampLiftOp Int16.mul
 
-/-- The `not` operation. -/
-instance : Complement Integer where
-  complement
-  | ⟨0, _, _⟩ => 100
-  | _ => 0
+instance : Add Integer := ⟨add⟩
+instance : Sub Integer := ⟨sub⟩
+instance : Mul Integer := ⟨mul⟩
 
-end Integer
-
-namespace Int16
-
-theorem eq_minValue_iff_dvd_toInt {a : Int16} : (a = .minValue ∨ a = 0) ↔ 2^15 ∣ a.toInt := by
-  constructor
-  · rintro (h|h) <;> (rw [h]; decide)
-  · intro ⟨k, hk⟩
-    have hk_lt : k < 1 := by
-      apply Int.lt_of_mul_lt_mul_left (a := 2^15) ?_ (by decide)
-      rw [show (2^15: Int) * 1 = 32767 + 1 by decide]
-      apply Int.lt_add_one_of_le
-      rw [←hk]
-      apply toInt_le
-    have hk_ge : k ≥ -1 := by
-      refine Int.not_lt.mp fun hn => ?_
-      refine absurd (le_toInt a) (Int.not_le_of_gt ?_)
-      rw [hk]
-      exact Int.mul_lt_mul_of_pos_left hn (by decide)
-
-    match k with
-    | -1 =>
-      left
-      rwa [show (2^15: Int) * (-1) = (-2^15: Int16).toInt by decide,
-           toInt_inj
-      ] at hk
-    | 0 =>
-      right
-      rwa [show (2^15: Int) * 0 = (0: Int16).toInt by decide,
-           toInt_inj
-      ] at hk
-
-theorem toInt_neg' {a : Int16} (ha : a ≠ .minValue) : (-a).toInt = -(a.toInt) := by
-  rw [toInt_neg, Int.neg_bmod]
-  simp only [Nat.reducePow, Int.cast_ofNat_Int, toInt_bmod]
-  simp only [show (65536: Int) = 2 * 2^15 by decide,
-            @Int.mul_dvd_mul_iff_left 2 _ _ (by decide)]
-  simp only [←eq_minValue_iff_dvd_toInt, ha, false_or]
-  split <;> simp_all
-
-theorem mod_lt_of_pos (a : Int16) {b : Int16} (hb : b > 0) : a % b < b := by
-  rw [lt_iff_toInt_lt, toInt_mod]
-  apply Int.tmod_lt_of_pos
-  rwa [←toInt_zero, ←lt_iff_toInt_lt]
-
-theorem lt_mod_of_pos (a : Int16) {b : Int16} (hb : b > 0) : -b < a % b := by
-  rw [lt_iff_toInt_lt,
-      @toInt_neg' b (by intro; simp_all),
-      toInt_mod]
-  apply Int.lt_tmod_of_pos
-  rwa [←toInt_zero, ←lt_iff_toInt_lt]
-
-theorem neg_le_neg_iff {a b : Int16} (ha : a ≠ .minValue) (hb : b ≠ .minValue) : -a ≤ -b ↔ b ≤ a := by
-  rw [le_iff_toInt_le, le_iff_toInt_le]
-  rw [toInt_neg' ha, toInt_neg' hb]
-  simp
-
-end Int16
-
-namespace Integer
-
-open Int16
-
-/-- `dgt` stands for "digit get." It preserves sign. -/
-def dgt (acc target : Integer) : Integer :=
-  have h₁ {n : Int16} : n % 10 ≤ 999 :=
-    Int16.le_of_lt (Int16.lt_of_lt_of_le (mod_lt_of_pos n (by decide)) (by decide))
-  have h₂ {n : Int16} : -999 ≤ n % 10 :=
-    Int16.le_of_lt (Int16.lt_of_le_of_lt (by decide) (lt_mod_of_pos n (by decide)))
-
-  match target with
-  | ⟨0, _, _⟩ => ⟨acc.n % 10, h₁, h₂⟩
-  | ⟨1, _, _⟩ => ⟨(acc.n / 10) % 10, h₁, h₂⟩
-  | ⟨2, _, _⟩ => ⟨(acc.n / 100) % 10, h₁, h₂⟩ -- TODO: remove unnecessary % 10 call. Requires work to show bounds
-  | _ => 0
-
-/-- `dst` stands for "digit set" -/
-def dst (_acc _target _new : Integer) : Integer :=
-  -- In case `new` is outside [-9, 9]
-  -- let newDigit := new.n % 10 -- with the same sign as `new`
-  panic! "`dst` is unimplemented!" -- TODO
+/-- The `not` operation sends `0` to `100` and all other numbers to `0`. -/
+@[inline] def not : Integer → Integer
+| 0 => 100
+| _ => 0
 
 -- Just for entering literals
-instance : Neg Integer where
-  neg
-  | ⟨n, le, ge⟩ =>
-    have : n ≠ minValue := by
-      intro hn
-      rw [hn] at ge
-      contradiction
-    {
-      n := -n,
-      le := show -n ≤ - -999 from -- this hint speeds up elaboration significantly
-        (neg_le_neg_iff this (by decide)).mpr ge,
-      ge :=
-        (neg_le_neg_iff (by decide) this).mpr le
-    }
+@[inline] def neg : Integer → Integer
+| ⟨n, le, ge⟩ =>
+  {
+    n := -n,
+    le := show -n ≤ - -999 from -- this hint speeds up elaboration significantly
+      (neg_le_neg_iff (n_ne_minValue' le ge) (by decide)).mpr ge,
+    ge :=
+      (neg_le_neg_iff (by decide) (n_ne_minValue' le ge)).mpr le
+  }
 
-@[inline] instance : LT Integer :=
-  ⟨(·.n < ·.n)⟩
+instance : Neg Integer := ⟨neg⟩
 
-@[inline] instance : DecidableLT Integer :=
-  fun ⟨a, _, _⟩ ⟨b, _, _⟩ => if h : a < b then .isTrue h else .isFalse h
+/-- `Integer` division has the same semantics as `Int16.div` -/
+@[inline] def div (a b : Integer) : Integer :=
+  have := by
+    constructor
+    all_goals rw [le_iff_toInt_le, toInt_div_of_ne_left _ _ n_ne_minValue]
+    case' left =>
+      show -999 ≤ _
+      apply And.left ∘ Int.natAbs_le_iff.mp
+    case' right =>
+      show _ ≤ 999
+      apply And.right ∘ Int.natAbs_le_iff.mp
+    all_goals
+      apply Nat.le_trans (Int.natAbs_tdiv_le_natAbs ..)
+      rw [Int.natAbs_le_iff]
+      show toInt (-999) ≤ _ ∧ _ ≤ toInt 999
+      repeat rw [←Int16.le_iff_toInt_le]
+      exact ⟨a.ge, a.le⟩
+  ⟨a.n / b.n, And.right this, And.left this⟩
+
+instance : Div Integer :=
+  ⟨div⟩
+
+@[inline] def abs (x : Integer) : Integer :=
+  if x ≥ 0 then x else -x
+
+@[inline] def remainder (a b : Integer) : Integer :=
+  if b = 0 then 0 else
+    letI rem := abs (a - (a / b) * b) -- TODO : use native mod here instead of `-` and `*` which require runtime truncation
+    if a < 0 then -rem else rem
+
+-- TODO : mod (as in MC4010)
+
+/-- `getDigit x i` returns the
+`i`th (zero-indexed) base-`10` digit from the right of `x`, preserving the sign of `x`.
+If `i ∉ {0, 1, 2}`, returns zero. -/
+@[inline] def getDigit (x i : Integer) : Integer :=
+  match i with
+  | 0 => remainder x 10
+  | 1 => remainder (x / 10) 10
+  | 2 => x / 100
+  | _ => 0
+
+/-- `setDigit x i d` returns `x` with its `i`th digit set to `d.abs % 10`, following the conventions of `dgt`.
+Additionally, the sign of the returned value is the same as the sign of `d` for
+`i ∈ {0, 1, 2}`. Otherwise, if `i ∉ {0, 1, 2}`, `setDigit` returns `x` unchanged. -/
+@[inline] def setDigit (x i d : Integer) : Integer :=
+  letI digit := abs (remainder d 10)
+  letI sign := if d ≥ 0 then 1 else -1
+  letI x' := abs x
+  letI toReplace := getDigit x' i
+  sign * match i with
+    | 0 => x' - toReplace + digit
+    | 1 => x' - toReplace * 10 + digit * 10
+    | 2 => x' - toReplace * 100 + digit * 100
+    | _ => 0
 
 open Lean in
 instance : ToExpr Integer where
