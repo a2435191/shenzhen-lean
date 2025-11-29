@@ -66,12 +66,8 @@ def Read?.map (f : α → β) : Read? α → Read? β
 instance : Functor Read? where
   map := .map
 
-theorem Read?.map_eq : Read?.map f mx = f <$> mx := rfl
-
-instance : LawfulFunctor Read? where
-  map_const := rfl
-  id_map := by intros; dsimp [Functor.map]; split <;> rfl
-  comp_map := by intros; dsimp [Functor.map]; split <;> rfl
+private theorem Read?.map_eq : Read?.map f mx = f <$> mx :=
+  rfl
 
 @[simp]
 def Read?.seq : Read? (α → β) → (Unit → Read? α) → Read? β :=
@@ -88,10 +84,13 @@ instance : Applicative Read? where
   pure := .none
   seq := .seq
 
-theorem Read?.pure_eq : Read?.none a = pure a := rfl
-theorem Read?.seq_eq : Read?.seq mf mx = mf <*> (mx ()) := rfl
+private theorem Read?.seq_eq : Read?.seq mf mx = mf <*> (mx ()) :=
+  rfl
 
 instance : LawfulApplicative Read? where
+  map_const := rfl
+  id_map := by intros; dsimp [Functor.map]; split <;> rfl
+  comp_map := by intros; dsimp [Functor.map]; split <;> rfl
   seqLeft_eq := by intros; rfl
   seqRight_eq := by intros; rfl
   pure_seq := by
@@ -118,17 +117,6 @@ instance : Functor ProgramIO where
   | .writeOut r => .writeOut ((fun (d, a) => (d, f a)) <$> r)
   | .halted => .halted
 
-instance : LawfulFunctor ProgramIO where
-  map_const := rfl
-  id_map := by
-    intros
-    dsimp [Functor.map]
-    (repeat' split) <;> rfl
-  comp_map := by
-    intros
-    dsimp [Functor.map]
-    (repeat' split) <;> rfl
-
 def _root_.Applicative.map₂ [Applicative m] (ma : m α) (mb : m β) (f : α → β → γ) : m γ :=
   f <$> ma <*> mb
 
@@ -151,31 +139,16 @@ instance : Applicative ProgramIO where
         -- Overwrite the previously written data
         Applicative.map₂ rf ra fun (_, f) (d, a) => (d, f a)
 
-section
-
-variable {α : Type u} {β : Type v}
-
-def prodMapR : Data × (α → β) → α → Data × β :=
-  fun (d, f) a => (d, f a)
-
-theorem eq_prodMapR : (fun x a => (x.1, x.2 a)) = @prodMapR α β :=
-  rfl
-
-def prodMapL : (α → β) → Data × α → Data × β :=
-  fun f (d, a) => (d, f a)
-
-theorem eq_prodMapL : (fun x a => (a.1, x a.2)) = @prodMapL α β :=
-  rfl
-
-def prodMap' : Data × (α → β) → Data × α → Data × β :=
-  fun (_, f) (d, a) => (d, f a)
-
-theorem eq_prodMap' : (fun x a => (a.1, x.2 a.2)) = @prodMap' α β :=
-  rfl
-
-end
-
 instance : LawfulApplicative ProgramIO where
+  map_const := rfl
+  id_map := by
+    intros
+    dsimp [Functor.map]
+    (repeat' split) <;> rfl
+  comp_map := by
+    intros
+    dsimp [Functor.map]
+    (repeat' split) <;> rfl
   seqLeft_eq := by intros; rfl
   seqRight_eq := by intros; rfl
   pure_seq := by
@@ -202,7 +175,6 @@ instance : LawfulApplicative ProgramIO where
     all_goals
       (simp only <;> congr 1)
       simp only [Read?.map_eq, Read?.seq_eq]
-      try simp only [eq_prodMapR, eq_prodMapL, eq_prodMap']
     any_goals rw [←seq_assoc]
     all_goals
       repeat rw [←pure_seq]
