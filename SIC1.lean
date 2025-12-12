@@ -38,7 +38,7 @@ instance : Inhabited Mem := ⟨default⟩
 
 end Mem
 
-/-- Possibly read from `IN`. -/
+/-- Possibly read some `α` from `IN`. -/
 inductive ProgramIO.Read? (α : Type u)
 /-- Don't read any value from `IN`. -/
 | none (a : α)

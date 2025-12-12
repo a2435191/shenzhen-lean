@@ -59,7 +59,8 @@ def map₃ (f : ξ → ξ') (gInv : δ' → δ) (h : α → α') : Read? ξ δ �
 | .read₂ .. => True
 | _ => False
 
-def seq {r₁ : Read? ξ δ α} {r₂ : Read? ξ δ β} (h₁ : ¬r₁.isRead₂) (h₂ : ¬r₂.isRead₂) : Read? ξ δ (α × β) :=
+/-- Sequence two `Read?`s, given that they both read at most once. -/
+def seq (r₁ : Read? ξ δ α) (r₂ : Read? ξ δ β) (h₁ : ¬r₁.isRead₂) (h₂ : ¬r₂.isRead₂) : Read? ξ δ (α × β) :=
   match r₁, r₂ with
   | .read₂ .., _ | _, read₂ .. => by exfalso; simp at h₁ h₂
   | .none a, .none b => .none (a, b)

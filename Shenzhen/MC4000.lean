@@ -170,7 +170,8 @@ def next.readXBus₂ (ri₁ ri₂ : RegOrInt) : InstructionEffects.Read? (Intege
       unfold XBusEffects.Read?.isRead₂ next.readXBus₁
       (repeat split at *)
       <;> trivial
-  .seq (r₁ := next.readXBus₁ simpleIOIn state ri₁) (r₂ := next.readXBus₁ simpleIOIn state ri₂) this.1 this.2
+  .seq (next.readXBus₁ simpleIOIn state ri₁) (next.readXBus₁ simpleIOIn state ri₂)
+       this.1 this.2
 
 /-- Get the state after executing the current instruction, possibly wrapped in XBus pin reads/a poll/a write.
   Will try to advance the state regardless of `state.sleep` or `state.hasRun`.
@@ -199,10 +200,6 @@ def execCurrentInstr (flags : Vector ConditionalFlag m) (instrs : Vector (Instru
       ofRead₁ src ({ state' with sleep := ·.clampToNat })
     | .slx xBusReg =>
       -- src is `XBus` so no need to handle simple I/O
-      -- TODO: check the game's behavior
-      -- to make sure that after `slx` we go
-      -- straight to the next instruction.
-      -- Otherwise stay on the original `state`
       .poll xBusReg state'
     | .add src =>
       let state' := handleSimpleIO src state'
@@ -248,15 +245,3 @@ where
   ofRead₂ (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → State m) : InstructionEffects (State m) :=
     let val := next.readXBus₂ simpleIOIn state ri₁ ri₂
     .ofRead? (Function.uncurry f <$> val)
-
-
-
--- namespace InstructionEffects
-
--- variable {m} (initState : State m) (prevSimpleIOIn : PrevSimpleIOIn)
-
--- @[inline] def run (fx : InstructionEffects m α) : XBusEffects XBus Integer (α × State m) :=
---   fx prevSimpleIOIn initState
-
--- @[inline] def run' (fx : InstructionEffects m Unit) : XBusEffects XBus Integer (State m) :=
---   Prod.snd <$> fx prevSimpleIOIn initState
