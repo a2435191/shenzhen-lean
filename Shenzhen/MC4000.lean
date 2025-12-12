@@ -104,24 +104,10 @@ namespace MC4000
 section mk'
 variable (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat InternalReg XBus SimpleIO))
 
-def mk'.jmpLabelsInBounds : Prop :=
-  ∀ pair ∈ instrs, match pair with
+abbrev mk'.jmpLabelsInBounds : Bool :=
+  instrs.all fun
     | .jmp dst => dst < instrs.size
-    | _ => True
-
-instance mk'.instDecidablePred : DecidablePred mk'.jmpLabelsInBounds :=
-  fun instrs =>
-    let b := instrs.all fun
-      | .jmp dst => dst < instrs.size
-      | _ => true
-    decidable_of_bool b <| by
-      simp only [b, jmpLabelsInBounds, Array.all_iff_forall, Nat.zero_le, true_and, forall_self_imp]
-      rw [←Array.forall_getElem]
-      constructor
-      all_goals
-        intro h i ih
-        have := h i ih
-        split <;> simp_all
+    | _ => true
 
 /-- A more convenient constructor for `MC4000` with default `by decide` proofs. -/
 def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat InternalReg XBus SimpleIO))
@@ -132,9 +118,14 @@ def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat Inter
     let instrs' : Array (Instruction m) :=
       instrs.attach.map fun ⟨i, hi⟩ =>
         match i with
-        | .jmp dst => .jmp ⟨dst, by
-            have := h (.jmp dst) (h' ▸ hi)
-            rwa [Array.snd_unzip, Array.size_map] at this⟩
+        | .jmp dst => .jmp <| Fin.mk dst <| by
+            replace h' : instrs = flagsAndInstrs.unzip.snd := h' ▸ rfl
+            unfold m
+            simp only [mk'.jmpLabelsInBounds, Array.all_eq_true', ←h'] at h
+            replace h := h (.jmp dst) hi
+            rw [decide_eq_true_eq] at h
+            convert h
+            simp [h']
         | .nop => .nop | .not => .not
         | .slp x => .slp x | .slx x => .slx x
         | .mov x y => .mov x y | .add x => .add x | .sub x => .sub x | .mul x => .mul x | .dgt x => .dgt x
