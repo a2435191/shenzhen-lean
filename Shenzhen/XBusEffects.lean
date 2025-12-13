@@ -27,7 +27,7 @@ inductive XBusEffects (ξ : Type u) (δ : Type v) (α : Type w)
   thereafter written out of `outPin`, and `a` is returned after the write. -/
 | write (outPin : ξ) : XBusEffects.Read? ξ δ (δ × α) → XBusEffects ξ δ α
 /-- `poll pin next` represents a computation delayed until the value
-  from XBus pin `pin` arrives; then `next` is the result.
+  from XBus pin `pin` arrives; then `next` is the (pure) result.
   This is used to implement the `slx` operation. -/
 | poll (pin : ξ) (a : α)
 deriving Inhabited

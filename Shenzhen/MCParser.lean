@@ -156,11 +156,10 @@ error: `slx` only works with XBus registers
 #check line(slx p0)
 
 /-- Invoke the microchip compiler to turn MC-series source code into an initial
-chip state. This happens at (Lean) *compile time*.
+chip state. This happens at Lean compile time.
 
 If you want this to happen at runtime, just use the functions in `Compile.lean`
-directly. Of course, then improper programs will require use of the `Except` monad
-or runtime panics. -/
+directly. -/
 elab "mcc(" e:sepBy(line, "\n", linebreak) ")" : term => do
   match e.getElems.mapM parseLine with
   | .error e => throw e

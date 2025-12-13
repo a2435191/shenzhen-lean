@@ -77,7 +77,7 @@ theorem nextFinIdx?_eq {i : Fin n} : nextFinIdx? i p = find? fun j => j > i && p
     | cast i' ih =>
       have : i'.castSucc.val + 1 < n' + 1 := by
         simp
-      unfold nextFinIdx? at ⊢
+      unfold nextFinIdx?
       simp only [this, dite_true]
       split_ifs with h
       · refine (find?_eq_some_iff.mpr ⟨?_, ?_⟩).symm
