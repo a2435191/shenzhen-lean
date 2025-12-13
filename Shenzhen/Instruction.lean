@@ -3,10 +3,25 @@ import Shenzhen.Integer
 inductive ConditionalFlag | none | pos | neg | once
 deriving Repr, Inhabited, Lean.ToExpr
 
-structure ConditionalState where
+structure ConditionalState (numInstr : Nat) where
+  /-- Whether an instruction has been executed already. Used
+  to implement the `@` conditional (`ConditionalFlag.once`). -/
+  hasRun : Vector Bool numInstr
   posEnabled : Bool
   negEnabled : Bool
 deriving Repr
+
+def ConditionalState.boolFlags : ConditionalState m → Bool × Bool
+| ⟨_, pos, neg⟩ => (pos, neg)
+
+def ConditionalFlag.isEnabled
+    (flag : ConditionalFlag) (cond : ConditionalState m)
+    (ip : Fin m) : Bool :=
+  match flag with
+  | .none => true
+  | .pos => cond.posEnabled
+  | .neg => cond.negEnabled
+  | .once => !cond.hasRun[ip]
 
 inductive Pin (ξ : Type u) (ι : Type v)
 | xBus (pin : ξ) | simpleIO (pin : ι)
@@ -99,6 +114,8 @@ inductive Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x)
 -- | gen : ι → R/I → R/I → Instruction .. -- TODO: add this back in
 deriving Inhabited, Repr, Lean.ToExpr
 
+namespace Instruction
+
 -- Needed for the derived instances for e.g. `MCParser.Line`,
 -- and `instToExprOptionOfToLevel` only allows a type with one universe level
 -- (`Instruction` has four)
@@ -123,7 +140,7 @@ instance
 
 -- #eval test
 
-def Instruction.mapΛ (instr : Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x))
+def mapΛ (instr : Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x))
     (f : Λ → Λ') : Instruction Λ' ρ ξ ι :=
   match instr with
   | .jmp l => .jmp (f l)
@@ -134,7 +151,7 @@ def Instruction.mapΛ (instr : Instruction (Λ : Type u) (ρ : Type v) (ξ : Typ
   | .dgt x => .dgt x | .dst x y => .dst x y
   | .teq x y => .teq x y | .tgt x y => .tgt x y | .tlt x y => .tlt x y | .tcp x y => .tcp x y
 
-@[specialize] def Instruction.mapΛM {m : Type u → Type v} [Functor m] [Pure m]
+@[specialize] def mapΛM {m : Type u → Type v} [Functor m] [Pure m]
     {Λ : Type u} {Λ' : Type u} {ρ : Type u} {ξ : Type u} {ι : Type u}
     (f : Λ → m Λ') (instr : Instruction Λ ρ ξ ι)
     : m (Instruction Λ' ρ ξ ι) :=
