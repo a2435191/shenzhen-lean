@@ -6,7 +6,7 @@ namespace Compile
 /-- Get the nearest (forward) index of a line that contains an instruction,
 including the current one. This could require wrapping around. -/
 def nextInstructionLine (lines : Vector (MCParser.Line Λ ρ ξ ι) n) (i : Fin n) : Option (Fin n) :=
-  lines.nextFinIdx? i fun _ line => line.instruction.isSome
+  Fin.nextFinIdx? i fun j => lines[j].instruction.isSome
 
 variable (lines : Array (MCParser.Line Λ ρ ξ ι)) [BEq Λ] [Hashable Λ]
 

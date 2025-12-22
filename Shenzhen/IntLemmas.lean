@@ -75,7 +75,7 @@ lemma bmod_le_natAbs {k : Int} {n : Nat} : k.bmod n ≤ k.natAbs := by
   match hk : k with
   | .ofNat i => simp [bmod_ofNat_le]
   | -[i+1] =>
-    rw [negSucc_eq'', neg_bmod, natAbs_neg, natAbs_cast]
+    rw [negSucc_eq'', neg_bmod, natAbs_neg, natAbs_natCast]
     split
     · exact bmod_ofNat_le
     · simp only [bmod]

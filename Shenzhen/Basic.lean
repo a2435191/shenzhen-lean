@@ -8,6 +8,7 @@ import Shenzhen.MCParser
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
 import Shenzhen.XBusEffects
+
 structure Conns (χ : Type u) (ψ : Type v) where
   edges : Array (List (χ × ψ)) -- each edge is `(chip, pin)`
   nontrivial : ∀ edge ∈ edges, edge.length ≥ 2 := by decide
@@ -82,3 +83,5 @@ def lightController : Board :=
     simpleIOConns := { edges := #[[(0, 0), (1, 0)], [(2, 1), (3, 1)]] },
     xBusConns := { edges := #[[(1, 1), (2, 0)]] }
   }
+
+namespace Board
