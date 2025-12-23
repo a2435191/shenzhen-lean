@@ -55,9 +55,14 @@ def map₃ (f : ξ → ξ') (gInv : δ' → δ) (h : α → α') : Read? ξ δ �
 | .read₁ pin next => .read₁ (f pin) (h ∘ next ∘ gInv)
 | .read₂ pin₁ pin₂ next => .read₂ (f pin₁) (f pin₂) fun d₁ d₂ => h (next (gInv d₁) (gInv d₂))
 
-@[reducible, simp] def isRead₂ : Read? ξ δ α → Prop
-| .read₂ .. => True
-| _ => False
+@[reducible, simp] def isNone : Read? ξ δ α → Bool
+| .none _ => true | _ => false
+
+@[reducible, simp] def isRead₁ : Read? ξ δ α → Bool
+| .read₁ .. => true | _ => false
+
+@[reducible, simp] def isRead₂ : Read? ξ δ α → Bool
+| .read₂ .. => true | _ => false
 
 /-- Sequence two `Read?`s, given that they both read at most once. -/
 def seq (r₁ : Read? ξ δ α) (r₂ : Read? ξ δ β) (h₁ : ¬r₁.isRead₂) (h₂ : ¬r₂.isRead₂) : Read? ξ δ (α × β) :=
@@ -90,6 +95,15 @@ def map₃ (f : ξ → ξ') (g : δ → δ') (gInv : δ' → δ) (h : α → α'
 | .ofRead? r => .ofRead? (r.map₃ f gInv h)
 | .write out r => .write (f out) (r.map₃ f gInv (Prod.map g h))
 | .poll pin a => .poll (f pin) (h a)
+
+def isOfRead? : XBusEffects ξ δ α → Bool
+| .ofRead? .. => true | _ => false
+
+def isWrite : XBusEffects ξ δ α → Bool
+| .write .. => true | _ => false
+
+def isPoll : XBusEffects ξ δ α → Bool
+| .poll .. => true | _ => false
 
 def clearData (dummy : Nat) [OfNat δ dummy] : XBusEffects ξ δ α → XBusEffects ξ Unit α :=
   map₃ id (fun _ => ()) (fun () => OfNat.ofNat dummy) id

@@ -26,6 +26,8 @@ structure State (numInstr : Nat) where
   cond : ConditionalState numInstr
   ip : IP numInstr
   sleep : Nat
+  -- TODO: this should exist unwrapped by `XBusEffects`, as
+  -- simple IO output does not go away when we wait on XBus
   simpleIOOut : Vector SimpleIOData numSimpleIOPins
 deriving Repr
 
@@ -276,8 +278,8 @@ where
     have its IP at the next enabled point (see `nextIP`). The conditional registers used are updated according to the instruction,
     so `teq 0 0; teq 0 1; + nop; slp 1` jumps over the `nop` to the `slp` instruction. This is also the case
     for `jmp` instructions, for which the IP is the first after the destination or the destination itself.
-  - Additionally, `state.sleep > 0` will return
-    `{ state with sleep := state.sleep - 1 }` instead of executing the current instruction.
+  - Additionally, `state.sleep > 0` will return `state` instead of executing anything. Note that this does not
+    decrement the sleep counter. That only happens at the end of a time unit (see Application Note 393 in the manual).
   - If the current instruction pointer is `none`, we try to go to the first available instruction
     (see `nextIP`).
  -/
@@ -286,10 +288,9 @@ def next
     (flags : Vector ConditionalFlag m) (instrs : Vector (Instruction m) m)
     (state : State m) (simpleIOIn : Vector SimpleIOData numSimpleIOPins)
     : InstructionEffects (State m) :=
-  match state.sleep with
-  | k + 1 => pure { state with sleep := k }
-  | 0 =>
+  if state.sleep == 0 then
     execCurrentInstr instrs state simpleIOIn <&> fun state' =>
       -- the IP is now just the successor of the original `state.ip` (or the jmp target)
       -- now advance the IP to the nearest enabled value (including the current one)
       state'.modifyIP (IP.currOrNextEnabled flags state'.cond)
+  else pure state
