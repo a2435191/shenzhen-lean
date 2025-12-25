@@ -73,6 +73,20 @@ def seq (r₁ : Read? ξ δ α) (r₂ : Read? ξ δ β) (h₁ : ¬r₁.isRead₂
   | .read₁ p nextA, .none b => .read₁ p (nextA ·, b)
   | .read₁ p nextA, .read₁ q nextB => .read₂ p q (nextA ·, nextB ·)
 
+-- def seq [Inhabited β] (mf : Read? ξ δ (α → β)) (mx : Unit → Read? ξ δ α) : Read? ξ δ β :=
+--   match mf with
+--   | .none f => inline <| map f (mx ())
+--   | .read₁ pin ofData =>
+--     match mx () with
+--     | .none x => .read₁ pin (ofData · x)
+--     | .read₁ pin' ofData' => .read₂ pin pin' fun d₁ d₂ => ofData d₁ (ofData' d₂)
+--     | .read₂ .. => panic! "Tried sequencing a `read₂` after a `read₁`"
+--   | .read₂ pin₁ pin₂ ofData =>
+--     match mx () with
+--     | .none x => .read₂ pin₁ pin₂ (ofData · · x)
+--     | .read₁ .. => panic! "Tried sequencing a `read₁` after a `read₂`"
+--     | .read₂ .. => panic! "Tried sequencing a `read₂` after a `read₂`"
+
 end Read?
 
 /-- Return some `α` without any XBus I/O: don't read, write, or poll. -/
