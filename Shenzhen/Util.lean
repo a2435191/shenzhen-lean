@@ -1,6 +1,7 @@
 import Batteries.Data.Fin.Basic
+import Batteries.Data.Fin.Lemmas
+import Batteries.Tactic.Lemma
 
-/-! `CommRing` instance for `Fin` -/
 namespace Fin
 
 theorem add_assoc {a b c : Fin n} : a + b + c = a + (b + c) := by
@@ -26,8 +27,11 @@ theorem right_distrib {a b c : Fin n} : (a + b) * c = a * c + b * c := by
   congr 1
   apply Nat.add_mul
 
-theorem add_sub_cancel {a b : Fin n} : a + (b - a) = b :=
-  sorry
+theorem add_sub_cancel {a b : Fin n} : a + (b - a) = b := by
+  simp [Fin.add_def, Fin.sub_def]
+  congr 1
+  rw [←Nat.add_assoc, Nat.add_sub_cancel' a.is_le',
+      Nat.add_mod_left, Nat.mod_eq_of_lt b.is_lt]
 
 /-- Find the smallest `j > i` s.t. `p j = true`, or `none` if no such `j` exists. -/
 @[specialize] def nextFinIdx? (i : Fin n) (p : Fin n → Bool) : Option (Fin n) :=
@@ -42,13 +46,27 @@ theorem nextFinIdx?_eq {i : Fin n} : nextFinIdx? i p = find? fun j => j > i && p
   | 0 => exact i.elim0
   | n' + 1 =>
     induction i using reverseInduction with
-    | last => sorry
+    | last =>
+      symm; simp [nextFinIdx?, ←Fin.not_le, le_last]
     | cast i' ih =>
-      have : i'.castSucc.val + 1 < n' + 1 := by
-        simp
       unfold nextFinIdx?
-      simp only [this, dite_true]
-      sorry
+      simp only [val_castSucc, Nat.add_lt_add_iff_right, is_lt, reduceDIte]
+      rw [Fin.succ] at ih
+      rw [ih]
+      simp only [lt_def, val_castSucc]
+      split
+      · symm
+        simp only [find?_eq_some_iff, Bool.and_eq_true,
+                   decide_eq_true_eq, Bool.and_eq_false_imp]
+        refine ⟨⟨Nat.lt_succ_self _, ‹_›⟩, fun j h₁ h₂ => ?_⟩
+        exfalso
+        simp [lt_def] at h₁ h₂
+        omega
+      · congr 1; funext j
+        match Nat.lt_trichotomy (i' + 1) j with
+        | .inl h => simp [h]; omega
+        | .inr (.inl h) => simp [h] at *; intro; assumption
+        | .inr (.inr h) => congr 2; apply propext; omega
 end Fin
 
 @[always_inline]

@@ -143,11 +143,9 @@ def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat Inter
         match i with
         | .jmp dst => .jmp <| Fin.mk dst <| by
             replace h' : instrs = flagsAndInstrs.unzip.snd := h' ▸ rfl
-            unfold m
             simp only [mk'.jmpLabelsInBounds, Array.all_eq_true', ←h'] at h
             replace h := h (.jmp dst) hi
-            rw [decide_eq_true_eq] at h
-            sorry
+            simpa [decide_eq_true_eq, h'] using h
         | .nop => .nop | .not => .not
         | .slp x => .slp x | .slx x => .slx x
         | .mov x y => .mov x y | .add x => .add x | .sub x => .sub x | .mul x => .mul x | .dgt x => .dgt x
