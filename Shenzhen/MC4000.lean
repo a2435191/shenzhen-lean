@@ -278,25 +278,25 @@ where
   --   let val := execCurrentInstr.read₂ simpleIOIn state ri₁ ri₂
   --   .ofRead? (Function.uncurry f <$> val)
 
-/-- Get the state after executing the current instruction, possibly wrapped in XBus pin reads/a poll/a write.
-  - If `state.sleep = 0`, this executes `instrs[state.ip]` regardless of the flags/internal conditional registers.
-  - However, in this case the state returned after executing the current instruction will
-    have its IP at the next enabled point (see `nextIP`). The conditional registers used are updated according to the instruction,
-    so `teq 0 0; teq 0 1; + nop; slp 1` jumps over the `nop` to the `slp` instruction. This is also the case
-    for `jmp` instructions, for which the IP is the first after the destination or the destination itself.
-  - Additionally, `state.sleep > 0` will return `state` instead of executing anything. Note that this does not
-    decrement the sleep counter. That only happens at the end of a time unit (see Application Note 393 in the manual).
-  - If the current instruction pointer is `none`, we try to go to the first available instruction
-    (see `nextIP`).
- -/
-@[specialize flags instrs]
-def next
-    (flags : Vector ConditionalFlag m) (instrs : Vector (Instruction m) m)
-    (state : State m) (simpleIOIn : Vector SimpleIOData numSimpleIOPins)
-    : InstructionEffects (State m) :=
-  if state.sleep == 0 then
-    execCurrentInstr instrs state simpleIOIn <&> fun state' =>
-      -- the IP is now just the successor of the original `state.ip` (or the jmp target)
-      -- now advance the IP to the nearest enabled value (including the current one)
-      state'.modifyIP (IP.currOrNextEnabled flags state'.cond)
-  else pure state
+-- /-- Get the state after executing the current instruction, possibly wrapped in XBus pin reads/a poll/a write.
+--   - If `state.sleep = 0`, this executes `instrs[state.ip]` regardless of the flags/internal conditional registers.
+--   - However, in this case the state returned after executing the current instruction will
+--     have its IP at the next enabled point (see `nextIP`). The conditional registers used are updated according to the instruction,
+--     so `teq 0 0; teq 0 1; + nop; slp 1` jumps over the `nop` to the `slp` instruction. This is also the case
+--     for `jmp` instructions, for which the IP is the first after the destination or the destination itself.
+--   - Additionally, `state.sleep > 0` will return `state` instead of executing anything. Note that this does not
+--     decrement the sleep counter. That only happens at the end of a time unit (see Application Note 393 in the manual).
+--   - If the current instruction pointer is `none`, we try to go to the first available instruction
+--     (see `nextIP`).
+--  -/
+-- @[specialize flags instrs]
+-- def next
+--     (flags : Vector ConditionalFlag m) (instrs : Vector (Instruction m) m)
+--     (state : State m) (simpleIOIn : Vector SimpleIOData numSimpleIOPins)
+--     : InstructionEffects (State m) :=
+--   if state.sleep == 0 then
+--     execCurrentInstr instrs state simpleIOIn <&> fun state' =>
+--       -- the IP is now just the successor of the original `state.ip` (or the jmp target)
+--       -- now advance the IP to the nearest enabled value (including the current one)
+--       state'.modifyIP (IP.currOrNextEnabled flags state'.cond)
+--   else pure state

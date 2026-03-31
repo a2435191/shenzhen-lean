@@ -87,7 +87,7 @@ theorem nextFinIdx?_eq {i : Fin n} : nextFinIdx? i p = find? fun j => j > i && p
           left
           simpa [le_def, Nat.lt_succ_iff] using hj₂
       · show i'.succ.nextFinIdx? p = _
-        simp_rw [ih, lt_def, val_succ, coe_castSucc]
+        simp_rw [ih, lt_def, val_succ, val_castSucc]
         congr 1
         funext j
         if h₁ : i'.val + 1 < j.val then
@@ -103,7 +103,7 @@ theorem nextFinIdx?_eq {i : Fin n} : nextFinIdx? i p = find? fun j => j > i && p
                    decide_false, Bool.false_and,
                    decide_true, Bool.true_and]
           symm
-          simp only [coe_castSucc, Bool.not_eq_true] at h
+          simp only [val_castSucc, Bool.not_eq_true] at h
           convert h
 end Fin
 
