@@ -13,3 +13,4 @@ root = "Main"
 [[require]]
 name = "batteries"
 scope = "leanprover-community"
+rev = "main"
