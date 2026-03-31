@@ -129,7 +129,7 @@ elab "line(" e:line ")" : term => elabLine e none
 
 elab "mc(" e:sepBy(line, "\n", linebreak) ")" : term => do
   let lines ← e.getElems.mapM (elabLine · none)
-  mkArrayLit (←mkConst' ``MC4000.Line) lines.toList
+  mkArrayLit (←mkConst ``MC4000.Line) lines.toList
 
 -- #eval mc(
 --   slp 1

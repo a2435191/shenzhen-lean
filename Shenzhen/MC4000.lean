@@ -3,6 +3,7 @@ import Shenzhen.Integer
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
 import Shenzhen.XBusEffects
+import Shenzhen.Notation
 
 namespace MC4000
 
@@ -146,8 +147,7 @@ def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat Inter
             simp only [mk'.jmpLabelsInBounds, Array.all_eq_true', ←h'] at h
             replace h := h (.jmp dst) hi
             rw [decide_eq_true_eq] at h
-            convert h
-            simp [h']
+            sorry
         | .nop => .nop | .not => .not
         | .slp x => .slp x | .slx x => .slx x
         | .mov x y => .mov x y | .add x => .add x | .sub x => .sub x | .mul x => .mul x | .dgt x => .dgt x

@@ -1,18 +1,9 @@
 import Shenzhen.Integer
-import Mathlib.Tactic.DeriveFintype
-
-deriving instance Fintype for UInt8
 
 structure SimpleIOData where
   n : UInt8
   le : n ≤ 100 := by decide
 deriving DecidableEq
-
-lemma SimpleIOData.mk_inj {n m} (h : n = m) {n_le} {m_le} : mk n n_le = mk m m_le := by
-  simp [h]
-
-noncomputable instance : Fintype SimpleIOData :=
-  Fintype.ofInjective SimpleIOData.n fun _ _ h => SimpleIOData.mk_inj h
 
 namespace SimpleIOData
 

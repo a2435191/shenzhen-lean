@@ -1,6 +1,7 @@
 name = "shenzhen"
 version = "0.1.0"
 defaultTargets = ["shenzhen"]
+leanOptions = {weak.lang.lemmaCmd=true}
 
 [[lean_lib]]
 name = "Shenzhen"
@@ -10,5 +11,5 @@ name = "shenzhen"
 root = "Main"
 
 [[require]]
-name = "mathlib"
+name = "batteries"
 scope = "leanprover-community"

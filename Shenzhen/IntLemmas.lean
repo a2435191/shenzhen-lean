@@ -1,4 +1,4 @@
-import Mathlib.Tactic.Lemma
+import Batteries.Tactic.Lemma
 
 namespace Int16
 

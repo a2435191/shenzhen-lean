@@ -1,23 +1,12 @@
 import Shenzhen.IntLemmas
 import Shenzhen.Util
-import Mathlib.Tactic.DeriveFintype
 import Lean
-
-deriving instance Fintype for UInt16
-deriving instance Fintype for Int16
 
 structure Integer where
   n : Int16
   le : n ≤ 999 := by decide
   ge : -999 ≤ n := by decide
 deriving DecidableEq, BEq
-
-lemma Integer.mk_inj {n m} (h : n = m) {n_le} {n_ge} {m_le} {m_ge} :
-    mk n n_le n_ge = mk m m_le m_ge := by
-  simp [h]
-
-noncomputable instance : Fintype Integer :=
-  Fintype.ofInjective Integer.n fun _ _ h => Integer.mk_inj h
 
 namespace Integer
 
