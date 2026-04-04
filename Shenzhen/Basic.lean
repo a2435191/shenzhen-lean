@@ -49,9 +49,9 @@ deriving Repr
 
 structure Board.State where
   m : Nat
-  xBusEffects : XBusEffects MC4000.XBus Integer (MC4000.State m)
+  xBusEffects : IOEffects MC4000.XBus Integer (MC4000.State m)
 
-def Board.State.ofXBusEffects {m} : XBusEffects MC4000.XBus Integer (MC4000.State m) → Board.State :=
+def Board.State.ofXBusEffects {m} : IOEffects MC4000.XBus Integer (MC4000.State m) → Board.State :=
   mk m
 
 structure Board.States (b : Board) where

@@ -176,5 +176,8 @@ end Lean.Meta
 @[inline] def Vector.mapFinIdx' (xs : Vector α n) (f : Fin n → α → β) : Vector β n :=
   xs.mapFinIdx fun i a h => f ⟨i, h⟩ a
 
-@[inline] def Vector.zipFinIdx (xs: Vector α n) : Vector (α × Fin n) n :=
+@[inline] def Vector.zipFinIdx  (xs: Vector α n) : Vector (α × Fin n) n :=
   xs.mapFinIdx fun i a h => ⟨a, i, h⟩
+
+@[inline] def Vector.findSome?FinIdx (xs : Vector α n) (f : Fin n → α → Option β) : Option (β × Fin n) :=
+  xs.zipFinIdx.findSome? fun (a, i) => (·, i) <$> f i a

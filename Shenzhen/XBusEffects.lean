@@ -1,156 +1,112 @@
-import Shenzhen.Instruction
-
-/-- `Read?` represents a value of type `α`, possibly delayed until one or two reads from XBus pins happen.
+/-- `IOEffects ξ δ α` represents a value of type `α`, possibly delayed until reads, writes, or peeks from XBus pins happen.
   - `ξ` is the type of *X*Bus pins.
   - `δ` is the type of *d*ata read over XBus pins (probably `Integer`). -/
-inductive XBusEffects.Read? (ξ : Type u) (δ : Type v) (α : Type w)
-/-- Just return a value without reading anything. -/
-| none (a : α)
-/-- `read₁ pin next` represents a computation delayed until a value `d`
-  from XBus pin `pin` can be read; then `next d` is the result of the computation. -/
-| read₁ (pin : ξ) (ofData : δ → α)
-/-- `read₂ pin₁ pin₂ next` represents a computation delayed until values `d₁` and `d₂` (in that order)
-  from XBus pins `pin₁` and `pin₂`, respectively, can be read; then `next d₁ d₂` is the result of the computation. -/
-| read₂ (pin₁ pin₂ : ξ) (ofData : δ → δ → α)
-deriving Inhabited
-
-/-- `XBusEffects` represents a value of type `α`, possibly delayed until one or two reads from XBus pins happen.
-  - `ξ` is the type of *X*Bus pins.
-  - `δ` is the type of *d*ata read over XBus pins (probably `Integer`).
-
-  The constructors guarantee that effects are either zero, one, or two reads, optionally followed by
-  a single write; or alternatively a poll operation that waits for incoming data on a pin and does nothing with it. -/
-inductive XBusEffects (ξ : Type u) (δ : Type v) (α : Type w)
-/-- Don't do a write or poll, just read from zero, one, or two pins. -/
-| ofRead? : XBusEffects.Read? ξ δ α → XBusEffects ξ δ α
-/-- Get `(d, a)` after reading zero, one, or two pins, where `d` is some data to be
-  thereafter written out of `outPin`, and `a` is returned after the write. -/
-| write (outPin : ξ) : XBusEffects.Read? ξ δ (δ × α) → XBusEffects ξ δ α
+inductive IOEffects (ξ : Type u) (δ : Type v) (α : Type w)
+/-- Just return a value without doing any XBus effects. -/
+| pure (a : α)
+/-- `read pin next` represents a computation delayed until a value `d`
+  from `pin` can be read; then `next d` is the result of the computation. -/
+| read (pin : ξ) (next : δ → IOEffects ξ δ α)
+/-- `d` is some data to be thereafter written out of `outPin`, and `next ()` is returned after the write. -/
+| write (outPin : ξ) (d : δ) (next : Unit → IOEffects ξ δ α)
 /-- `poll pin next` represents a computation delayed until the value
-  from XBus pin `pin` arrives; then `next` is the (pure) result.
+  from XBus pin `pin` arrives; then `next ()` is the result thereafter.
   This is used to implement the `slx` operation. -/
-| poll (pin : ξ) (a : α)
-deriving Inhabited
+| poll (pin : ξ) (next : Unit → IOEffects ξ δ α)
 
-namespace XBusEffects
+-- TODO: vary `δ` depending on the pin type
+namespace IOEffects
 
-namespace Read?
+instance [Inhabited α] : Inhabited (IOEffects ξ δ α) :=
+  ⟨pure default⟩
 
-def pure (a : α) : Read? ξ δ α :=
-  .none a
+@[simp]
+def map (f : α → β) : IOEffects ξ δ α → IOEffects ξ δ β
+| pure a => pure (f a)
+| .read p next => .read p fun d => map f (next d)
+| .write p d next => .write p d fun () => map f (next ())
+| .poll p next => .poll p fun () => map f (next ())
 
-def map (f : α → β) : Read? ξ δ α → Read? ξ δ β
-| .none a => .none (f a)
-| .read₁ pin next => .read₁ pin (f ∘ next)
-| .read₂ pin₁ pin₂ next => .read₂ pin₁ pin₂ (f <| next · ·)
-
-instance : Pure (Read? ξ δ) := ⟨pure⟩
-
-instance : Functor (Read? ξ δ) where
-  map := map
-
-/-- Map all types across `Read?`. Note that the function for `δ` must take new to old. -/
-def map₃ (f : ξ → ξ') (gInv : δ' → δ) (h : α → α') : Read? ξ δ α → Read? ξ' δ' α'
-| .none a => .none (h a)
-| .read₁ pin next => .read₁ (f pin) (h ∘ next ∘ gInv)
-| .read₂ pin₁ pin₂ next => .read₂ (f pin₁) (f pin₂) fun d₁ d₂ => h (next (gInv d₁) (gInv d₂))
-
-@[reducible, simp] def isNone : Read? ξ δ α → Bool
-| .none _ => true | _ => false
-
-@[reducible, simp] def isRead₁ : Read? ξ δ α → Bool
-| .read₁ .. => true | _ => false
-
-@[reducible, simp] def isRead₂ : Read? ξ δ α → Bool
-| .read₂ .. => true | _ => false
-
-/-- Sequence two `Read?`s, given that they both read at most once. -/
-def seq (r₁ : Read? ξ δ α) (r₂ : Read? ξ δ β) (h₁ : ¬r₁.isRead₂) (h₂ : ¬r₂.isRead₂) : Read? ξ δ (α × β) :=
-  match r₁, r₂ with
-  | .read₂ .., _ | _, read₂ .. => by exfalso; simp at h₁ h₂
-  | .none a, .none b => .none (a, b)
-  | .none a, .read₁ q nextB => .read₁ q (a, nextB ·)
-  | .read₁ p nextA, .none b => .read₁ p (nextA ·, b)
-  | .read₁ p nextA, .read₁ q nextB => .read₂ p q (nextA ·, nextB ·)
-
--- def seq [Inhabited β] (mf : Read? ξ δ (α → β)) (mx : Unit → Read? ξ δ α) : Read? ξ δ β :=
---   match mf with
---   | .none f => inline <| map f (mx ())
---   | .read₁ pin ofData =>
---     match mx () with
---     | .none x => .read₁ pin (ofData · x)
---     | .read₁ pin' ofData' => .read₂ pin pin' fun d₁ d₂ => ofData d₁ (ofData' d₂)
---     | .read₂ .. => panic! "Tried sequencing a `read₂` after a `read₁`"
---   | .read₂ pin₁ pin₂ ofData =>
---     match mx () with
---     | .none x => .read₂ pin₁ pin₂ (ofData · · x)
---     | .read₁ .. => panic! "Tried sequencing a `read₁` after a `read₂`"
---     | .read₂ .. => panic! "Tried sequencing a `read₂` after a `read₂`"
-
-end Read?
-
-/-- Return some `α` without any XBus I/O: don't read, write, or poll. -/
-def pure (a : α) : XBusEffects ξ δ α :=
-  .ofRead? (.none a)
-
-def map (f : α → β) : XBusEffects ξ δ α → XBusEffects ξ δ β
-| .ofRead? r => .ofRead? (f <$> r)
-| .write out r => .write out <| (fun (d, a) => (d, f a)) <$> r
-| .poll pin a => .poll pin (f a)
-
-instance : Pure (XBusEffects ξ δ) where
+instance : Pure (IOEffects ξ δ) where
   pure := .pure
 
-instance : Functor (XBusEffects ξ δ) where
+instance : Functor (IOEffects ξ δ) where
   map := map
 
-/-- Map all types across `XBusEffects`. Note that both directions are required for `δ ↔ δ'`. -/
-def map₃ (f : ξ → ξ') (g : δ → δ') (gInv : δ' → δ) (h : α → α') : XBusEffects ξ δ α → XBusEffects ξ' δ' α'
-| .ofRead? r => .ofRead? (r.map₃ f gInv h)
-| .write out r => .write (f out) (r.map₃ f gInv (Prod.map g h))
-| .poll pin a => .poll (f pin) (h a)
+@[simp]
+def seq (mf : IOEffects ξ δ (α → β)) (mx : Unit → IOEffects ξ δ α) : IOEffects ξ δ β :=
+  match mf with
+  | pure f => f <$> mx ()
+  | .read p next => .read p fun d => seq (next d) mx
+  | .write p d next => .write p d fun () => seq (next ()) mx
+  | .poll p next => .poll p fun () => seq (next ()) mx
 
-def isOfRead? : XBusEffects ξ δ α → Bool
-| .ofRead? .. => true | _ => false
+instance : Seq (IOEffects ξ δ) where
+  seq := seq
 
-def isWrite : XBusEffects ξ δ α → Bool
-| .write .. => true | _ => false
+/-- You really should not be using data-dependent effects, as none of the instructions require them.
+  But creating this `Monad` instance allows the use of `do` notation. -/
+@[simp]
+def bind (mx : IOEffects ξ δ α) (f : α → IOEffects ξ δ β) : IOEffects ξ δ β :=
+  match mx with
+  | pure a => f a
+  | .read p next => .read p fun d => bind (next d) f
+  | .write p d next => .write p d fun () => bind (next ()) f
+  | .poll p next => .poll p fun () => bind (next ()) f
 
-def isPoll : XBusEffects ξ δ α → Bool
-| .poll .. => true | _ => false
+instance : Monad (IOEffects ξ δ) where
+  bind := bind
 
-def clearData (dummy : Nat) [OfNat δ dummy] : XBusEffects ξ δ α → XBusEffects ξ Unit α :=
-  map₃ id (fun _ => ()) (fun () => OfNat.ofNat dummy) id
+#reduce
+  let M := IOEffects (Fin 2) Nat
+  let mx : M (Nat × Nat) :=
+    -- waiting on two reads
+    .read 0 fun d₁ => .read 0 fun d₂ => pure (d₁, d₂)
+  let my x : M Unit :=
+    .write 0 x fun () => .pure ()
+  let ms : M (Nat × Nat) := do
+    let (a, b) ← mx
+    my a
+    my b
+    return (a, b)
+  ms
 
-variable [ToString ξ] [ToString α]
+section
 
-instance : ToString (Read? ξ Unit α) where
-  toString
-  | .none a => s!".none {a}"
-  | .read₁ pin next => s!".read₁ {pin} {next ()}"
-  | .read₂ pin₁ pin₂ next => s!".read₂ {pin₁} {pin₂} {next () ()}"
+-- TODO: make this local
+attribute [simp] Functor.map Seq.seq Bind.bind Pure.pure
 
-instance : ToString (XBusEffects ξ Unit α) where
-  toString
-  | .ofRead? r => s!".ofRead? <| {r}"
-  | .write out r => s!".write {out} <| {r}"
-  | .poll pin a => s!".poll {pin} {a}"
+theorem id_map (x : IOEffects ξ δ α) : id <$> x = x := by
+  induction x <;> try rfl
+  all_goals
+    simp; rename_i ih; funext; apply ih
 
-def clearToString (dummy := 37) [OfNat δ dummy] : XBusEffects ξ δ α → String :=
-  toString ∘ clearData (OfNat.ofNat dummy)
+theorem bind_pure_comp (f : α → β) (x : IOEffects ξ δ α) : x >>= (fun a => pure (f a)) = f <$> x := by
+  induction x
+  all_goals
+    simp <;> rename_i ih <;> funext <;> apply ih
 
-variable [ToString δ]
-instance : ToString (Read? ξ δ α) where
-  toString
-  | .none a => s!".none {a}"
-  | .read₁ pin _ => s!".read₁ {pin} …"
-  | .read₂ pin₁ pin₂ _ => s!".read₂ {pin₁} {pin₂} …"
+instance : LawfulMonad (IOEffects ξ δ) where
+  map_const := rfl
+  id_map := id_map
+  seqLeft_eq x y := by
+    simp [SeqLeft.seqLeft]
+    induction x
+    all_goals
+      first | apply bind_pure_comp | rename_i ih; funext; simp [ih]
+  seqRight_eq x y := by
+    simp [SeqRight.seqRight]
+    induction x
+    all_goals
+      first | symm; apply id_map | rename_i ih; funext; simp [ih]
+  pure_seq f x := by simp [Seq.seq]
+  bind_pure_comp := bind_pure_comp
+  bind_map f x := by
+    induction f <;> simp <;> (rename_i ih; funext; apply ih)
+  pure_bind := by simp
+  bind_assoc x f g := by
+    induction x <;> simp <;> (rename_i ih; funext; apply ih)
 
-instance : ToString (XBusEffects ξ δ α) where
-  toString
-  | .ofRead? r => s!".ofRead? <| {r}"
-  | .write out r => s!".write {out} <| {r}"
-  | .poll pin a => s!".poll {pin} {a}"
+end
 
-
-end XBusEffects
+end IOEffects

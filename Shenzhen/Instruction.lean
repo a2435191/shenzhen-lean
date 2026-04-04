@@ -25,7 +25,7 @@ def ConditionalFlag.isEnabled
 
 inductive Pin (ξ : Type u) (ι : Type v)
 | xBus (pin : ξ) | simpleIO (pin : ι)
-deriving Repr
+deriving Repr, DecidableEq, BEq
 
 namespace Instruction
 
@@ -41,9 +41,13 @@ inductive Reg (ρ : Type v) (ξ : Type w) (ι : Type x)
 deriving Repr, Lean.ToExpr
 
 @[inline] def Reg.pin? : Reg ρ ξ ι → Option (Pin ξ ι)
-| .xBus i => some (.xBus i)
+| .xBus x => some (.xBus x)
 | .simpleIO i => some (.simpleIO i)
 | .null | .internal _ => none
+
+@[macro_inline] def Reg.ofPin : Pin ξ ι → Reg ρ ξ ι
+| .xBus x => .xBus x
+| .simpleIO i => .simpleIO i
 
 inductive RegOrInt (ρ : Type v) (ξ : Type w) (ι : Type x)
 /-- A reference to a register. -/
@@ -57,6 +61,9 @@ namespace RegOrInt
 @[inline] def pin? : RegOrInt ρ ξ ι → Option (Pin ξ ι)
 | .reg r => r.pin?
 | .int _ => none
+
+@[macro_inline] def ofPin : Pin ξ ι → RegOrInt ρ ξ ι :=
+  fun p => .reg (.ofPin p)
 
 -- Some convenience constructors so I don't have to type `.reg (.internal .acc)` all the time
 

@@ -22,11 +22,22 @@ namespace MC4000
 /-- The instruction pointer for an `MC4000` with `m` instructions. -/
 abbrev IP (m) := Option (Fin m)
 
+/-- Represents the state during some tick. While executing an instruction (possibly across multiple ticks, in the case that we block on XBus),
+  all fields stay the same except for `simpleIOOut`, which may change from one tick to another inside an instruction. See its notes -/
 structure State (numInstr : Nat) where
   acc : Integer
   cond : ConditionalState numInstr
   ip : IP numInstr
   sleep : Nat
+  /-- The values being written out of each simple I/O pin. Reading
+    from a pin sets this value to 0 (but the read value is just the max of all the other writers on this wire).
+    See `effects`.
+
+    This may change from one tick to another within an instruction.
+    For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
+    out of `p0` before this instruction.
+    TODO: make this an effect?  -/
+  simpleIOOut : Vector SimpleIOData numSimpleIOPins
 deriving Repr
 
 abbrev Instruction (numInstr : Nat) :=
@@ -39,7 +50,7 @@ namespace State
 
 instance {m} : ToString (State m) where
   toString
-  | { acc, cond := c, ip, sleep } =>
+  | { acc, cond := c, ip, sleep, simpleIOOut } =>
     let condStr := match c.boolFlags with
       | (true, false) => "+"
       | (false, true) => "-"
@@ -47,13 +58,15 @@ instance {m} : ToString (State m) where
       | (true, true) => "?both true?"
     s!"[acc = {acc}; ip = {ip}; sleep = {sleep}; \
     cond = {condStr}; \
-    hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst}"
+    hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst}; \
+    simpleIOOut = {simpleIOOut.toList}"
 
 def init (m) : State m :=
   { acc := 0,
     cond := ⟨Vector.replicate m false, false, false⟩,
     ip := if h : m = 0 then none else some ⟨0, Nat.zero_lt_of_ne_zero h⟩,
-    sleep := 0 }
+    sleep := 0,
+    simpleIOOut := Vector.replicate numSimpleIOPins 0 }
 
 instance : Inhabited (State m) :=
   ⟨init m⟩
@@ -82,6 +95,13 @@ def modifyAcc' (f : Integer → Integer → Integer) (other : Integer) : State m
 
 @[inline] def modifyIP (f : IP m → IP m) : State m → State m :=
   fun state => { state with ip := f state.ip }
+
+
+@[inline] def setSimpleIOOut (i : SimpleIO) (val : SimpleIOData) : State m → State m :=
+  fun state => { state with simpleIOOut := Vector.set state.simpleIOOut i val }
+
+@[inline] def clearSimpleIOOut (i : SimpleIO) : State m → State m :=
+  setSimpleIOOut i 0
 
 end State
 
@@ -158,39 +178,6 @@ end mk'
 
 namespace State
 
-abbrev SimpleIOIn := Vector SimpleIOData numSimpleIOPins
-
-/-! Instruction effects -/
-abbrev InstructionEffects α :=
-  StateM SimpleIOIn <| XBusEffects XBus Integer α
-
-abbrev ReadEffects := XBusEffects.Read? XBus Integer
-
-variable {m : ℕ}
-
-section
-variable (simpleIOIn : Vector SimpleIOData numSimpleIOPins) (state : State m)
-
-/-- Read a register or integer literal, considering only the XBus effects.
-    Simple I/O effects are handled in `handleSimpleIO`. -/
-@[inline] def execCurrentInstr.read₁ : RegOrInt → ReadEffects Integer
-| .xBus x => .read₁ x id
-| .simpleIO x => .none simpleIOIn[x]
-| .internal .acc => .none state.acc
-| .null => .none 0
-| .int literal => .none literal
-
-@[inline] def execCurrentInstr.read₂ (state : State m) (ri₁ ri₂ : RegOrInt) : ReadEffects (Integer × Integer) :=
-  have : _ ∧ _ := by
-    constructor
-    all_goals
-      unfold XBusEffects.Read?.isRead₂ read₁
-      (repeat split at *)
-      <;> trivial
-  .seq (read₁ simpleIOIn state ri₁) (read₁ simpleIOIn state ri₂)
-       this.1 this.2
-end
-
 /-! ## A note about simple I/O
   "At any given time, a simple I/O pin is either in input mode or output mode. Writing a value
   to a pin register will put the corresponding pin into output mode with the specified output value.
@@ -199,102 +186,68 @@ end
 
   This is the only effect that can change the state of a chip mid-instruction. -/
 
-/-- Get the state after executing the current instruction, possibly wrapped in XBus pin reads/a poll/a write.
-  - If the current instruction pointer is `none`, we try to go to the first available instruction (see `nextIP`).
-  - Otherwise, we execute `instrs[state.ip]` regardless of the flags/internal conditional registers or `state.sleep`. The next
-  state returned also ignores the `+`/`-`/`@` registers. It's just `state.advanceIP` unless the instruction is `jmp l`,
-  in which case it jumps to `l`.
- -/
-@[specialize instrs]
-private def execCurrentInstr
-    (instrs : Vector (Instruction m) m) (state : State m) : InstructionEffects (State m) :=
-    show StateM _ _ from do
-  match state.ip with
-  | none => return pure (state.modifyIP IP.succ)
-  | some ip =>
-    let instr := instrs[ip]
-    let simpleIOIn ← get
-    -- TODO
-    -- State.setHasRun ip true <$>
-    -- State.modifyIP (IP.next instr) <$>
-    handleSimpleIO instr; -- TODO: check the corner case when `mov` reads from and writes to the same I/O register
-    match instr with
-    | .nop => return pure state
-    | .mov src dst =>
-      let read? := execCurrentInstr.read₁ simpleIOIn state src
-      match dst with
-      | .xBus y => return .write y (read? <&> (·, state))
-      | .simpleIO y => return .ofRead? <| read? <&> fun d =>
-          sorry
-      | .internal .acc => return .ofRead? <| read? <&> ({ state with acc := · })
-      | .null => return .ofRead? (read? <&> fun _ => state)
-    | .jmp _ => return pure state -- handled by `IP.next` above
-    | _ => sorry
-    -- | .slp src =>
-    --   ofRead?₁ src ({ state with sleep := ·.clampToNat })
-    -- | .slx xBusReg => .poll xBusReg state
-    -- | .add src =>
-    --   ofRead?₁ src (state.modifyAcc' Integer.add)
-    -- | .sub src =>
-    --   ofRead?₁ src (state.modifyAcc' Integer.sub)
-    -- | .mul src =>
-    --   ofRead?₁ src (state.modifyAcc' Integer.mul)
-    -- | .not => pure (state.modifyAcc Integer.not)
-    -- | .dgt src =>
-    --   ofRead?₁ src (state.modifyAcc' Integer.getDigit)
-    -- | .dst src₁ src₂ =>
-    --   ofRead?₂ src₁ src₂ fun digit new =>
-    --     state.modifyAcc (Integer.setDigit · digit new)
-    -- | .teq src₁ src₂ =>
-    --   ofRead?₂ src₁ src₂ fun x y => state.setCondIff (x == y)
-    -- | .tgt src₁ src₂ =>
-    --   ofRead?₂ src₁ src₂ fun x y => state.setCondIff (x > y)
-    -- | .tlt src₁ src₂ =>
-    --   ofRead?₂ src₁ src₂ fun x y => state.setCondIff (x < y)
-    -- | .tcp src₁ src₂ =>
-    --   ofRead?₂ src₁ src₂ fun x y => { state with cond := ⟨state.cond.hasRun, x > y, x < y⟩ }
+def ret {α} {m} [Functor m] : m α → ReaderT ρ (StateT σ m) α :=
+  fun a _ s => (·, s) <$> a
+
+/-- The `ReaderT` contains `simpleIOIn`, i.e. the max of the simple I/O signals over the wire for each simple I/O pin (not counting the current chip's output).
+  Does not update the instruction pointer. -/
+def effects {m} (instr : Instruction m) : ReaderT (Vector SimpleIOData numSimpleIOPins) (StateT (State m) (IOEffects XBus Integer)) Unit := do
+  match instr with
+  -- Basic
+  | .nop => return
+  | .mov src dst =>
+    let d ← readRegOrInt src
+    match dst with
+    | .null => return
+    | .internal .acc => modify ({· with acc := d})
+    | .simpleIO i =>
+      modify (setSimpleIOOut i d.toSimpleIOData)
+      return
+    | .xBus x =>
+      ret <| .write x d pure
+  | .jmp _ => return -- the jump is taken care of elsewhere
+  | .slp ri =>
+    let d ← readRegOrInt ri
+    modify ({ · with sleep := d.clampToNat }) -- TODO: should this be part of the effect type?
+  | .slx r =>
+    ret (.poll r pure)
+  -- Arithmetic
+  | .add ri => doArith ri (· + ·)
+  | .sub ri => doArith ri (· - ·)
+  | .mul ri => doArith ri (· * ·)
+  | .not => modify (modifyAcc Integer.not)
+  | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
+  | .dst ri₁ ri₂ =>
+    -- set the `ri₁`th digit of `acc` to `ri₂`
+    let digit ← readRegOrInt ri₁
+    let num ← readRegOrInt ri₂
+    modify (modifyAcc (Integer.setDigit · digit num))
+  -- Test (comparison)
+  | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
+  | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
+  | .tlt ri₁ ri₂ => doCmp ri₁ ri₂ (· < ·)
+  | .tcp ri₁ ri₂ =>
+    let d₁ ← readRegOrInt ri₁
+    let d₂ ← readRegOrInt ri₂
+    modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
 where
-  /-- Reading in from simple I/O clears any previously set simple output (to 0). -/
-  clearSimpleOutput : RegOrInt → StateM SimpleIOIn Unit
-    | .xBus _ | .internal _ | .null | .int _ => pure ()
-    | .simpleIO x => modify (Vector.set · x 0)
+  readRegOrInt ri := do
+    match ri with
+    | .int i => return i
+    | .null => return 0
+    | .internal .acc => return (←get).acc
+    | .simpleIO i => do
+      modify (clearSimpleIOOut i)
+      let simpleIOIn ← read
+      return simpleIOIn[i]
+    | .xBus x =>
+      ret <| .read x pure
 
-  handleSimpleIO : Instruction m → StateM SimpleIOIn Unit
-    -- in slx, the src register is XBus, so no need to handle simple I/O
-    | .nop | .not | .slx _ | .jmp _ => pure ()
-    | .mov s _ | .slp s | .add s | .sub s | .mul s | .dgt s =>
-      clearSimpleOutput s
-    | .dst s t | .teq s t | .tgt s t | .tlt s t | .tcp s t =>
-      clearSimpleOutput s *> clearSimpleOutput t
+  doArith ri f := do
+    let d ← readRegOrInt ri
+    modify (modifyAcc' f d)
 
-  -- /-- Read a single value and write nothing. Simple I/O effects are not handled here, only XBus. -/
-  -- @[inline] ofRead?₁ (ri : RegOrInt) (f : Integer → State m) : InstructionEffects (State m) :=
-  --   let val := execCurrentInstr.read₁ simpleIOIn state ri
-  --   .ofRead? (f <$> val)
-
-  -- @[inline] ofRead?₂ (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → State m) : InstructionEffects (State m) :=
-  --   let val := execCurrentInstr.read₂ simpleIOIn state ri₁ ri₂
-  --   .ofRead? (Function.uncurry f <$> val)
-
--- /-- Get the state after executing the current instruction, possibly wrapped in XBus pin reads/a poll/a write.
---   - If `state.sleep = 0`, this executes `instrs[state.ip]` regardless of the flags/internal conditional registers.
---   - However, in this case the state returned after executing the current instruction will
---     have its IP at the next enabled point (see `nextIP`). The conditional registers used are updated according to the instruction,
---     so `teq 0 0; teq 0 1; + nop; slp 1` jumps over the `nop` to the `slp` instruction. This is also the case
---     for `jmp` instructions, for which the IP is the first after the destination or the destination itself.
---   - Additionally, `state.sleep > 0` will return `state` instead of executing anything. Note that this does not
---     decrement the sleep counter. That only happens at the end of a time unit (see Application Note 393 in the manual).
---   - If the current instruction pointer is `none`, we try to go to the first available instruction
---     (see `nextIP`).
---  -/
--- @[specialize flags instrs]
--- def next
---     (flags : Vector ConditionalFlag m) (instrs : Vector (Instruction m) m)
---     (state : State m) (simpleIOIn : Vector SimpleIOData numSimpleIOPins)
---     : InstructionEffects (State m) :=
---   if state.sleep == 0 then
---     execCurrentInstr instrs state simpleIOIn <&> fun state' =>
---       -- the IP is now just the successor of the original `state.ip` (or the jmp target)
---       -- now advance the IP to the nearest enabled value (including the current one)
---       state'.modifyIP (IP.currOrNextEnabled flags state'.cond)
---   else pure state
+  doCmp ri₁ ri₂ f := do
+    let d₁ ← readRegOrInt ri₁
+    let d₂ ← readRegOrInt ri₂
+    modify (setCondIff (f d₁ d₂))
