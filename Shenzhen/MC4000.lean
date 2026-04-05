@@ -28,7 +28,6 @@ structure State (numInstr : Nat) where
   acc : Integer
   cond : ConditionalState numInstr
   ip : IP numInstr
-  sleep : Nat
   /-- The values being written out of each simple I/O pin. Reading
     from a pin sets this value to 0 (but the read value is just the max of all the other writers on this wire).
     See `effects`.
@@ -50,13 +49,13 @@ namespace State
 
 instance {m} : ToString (State m) where
   toString
-  | { acc, cond := c, ip, sleep, simpleIOOut } =>
+  | { acc, cond := c, ip, simpleIOOut } =>
     let condStr := match c.boolFlags with
       | (true, false) => "+"
       | (false, true) => "-"
       | (false, false) => "none"
       | (true, true) => "?both true?"
-    s!"[acc = {acc}; ip = {ip}; sleep = {sleep}; \
+    s!"[acc = {acc}; ip = {ip}; \
     cond = {condStr}; \
     hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst}; \
     simpleIOOut = {simpleIOOut.toList}"
@@ -65,7 +64,6 @@ def init (m) : State m :=
   { acc := 0,
     cond := ⟨Vector.replicate m false, false, false⟩,
     ip := if h : m = 0 then none else some ⟨0, Nat.zero_lt_of_ne_zero h⟩,
-    sleep := 0,
     simpleIOOut := Vector.replicate numSimpleIOPins 0 }
 
 instance : Inhabited (State m) :=
@@ -208,7 +206,9 @@ def effects {m} (instr : Instruction m) : ReaderT (Vector SimpleIOData numSimple
   | .jmp _ => return -- the jump is taken care of elsewhere
   | .slp ri =>
     let d ← readRegOrInt ri
-    modify ({ · with sleep := d.clampToNat }) -- TODO: should this be part of the effect type?
+    match d.clampToNat with
+    | 0 => return
+    | k + 1 => ret <| .sleep (k + 1) (by simp) pure
   | .slx r =>
     ret (.poll r pure)
   -- Arithmetic

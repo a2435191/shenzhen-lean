@@ -13,6 +13,7 @@ inductive IOEffects (ξ : Type u) (δ : Type v) (α : Type w)
   from XBus pin `pin` arrives; then `next ()` is the result thereafter.
   This is used to implement the `slx` operation. -/
 | poll (pin : ξ) (next : Unit → IOEffects ξ δ α)
+| sleep (ticks : Nat) (h : ticks ≠ 0) (next : Unit → IOEffects ξ δ α)
 
 -- TODO: vary `δ` depending on the pin type
 namespace IOEffects
@@ -22,10 +23,11 @@ instance [Inhabited α] : Inhabited (IOEffects ξ δ α) :=
 
 @[simp]
 def map (f : α → β) : IOEffects ξ δ α → IOEffects ξ δ β
-| pure a => pure (f a)
+| .pure a => pure (f a)
 | .read p next => .read p fun d => map f (next d)
 | .write p d next => .write p d fun () => map f (next ())
 | .poll p next => .poll p fun () => map f (next ())
+| .sleep t h next => .sleep t h fun () => map f (next ())
 
 instance : Pure (IOEffects ξ δ) where
   pure := .pure
@@ -40,6 +42,7 @@ def seq (mf : IOEffects ξ δ (α → β)) (mx : Unit → IOEffects ξ δ α) : 
   | .read p next => .read p fun d => seq (next d) mx
   | .write p d next => .write p d fun () => seq (next ()) mx
   | .poll p next => .poll p fun () => seq (next ()) mx
+  | .sleep t h next => .sleep t h fun () => seq (next ()) mx
 
 instance : Seq (IOEffects ξ δ) where
   seq := seq
@@ -53,6 +56,7 @@ def bind (mx : IOEffects ξ δ α) (f : α → IOEffects ξ δ β) : IOEffects �
   | .read p next => .read p fun d => bind (next d) f
   | .write p d next => .write p d fun () => bind (next ()) f
   | .poll p next => .poll p fun () => bind (next ()) f
+  | .sleep t h next => .sleep t h fun () => bind (next ()) f
 
 instance : Monad (IOEffects ξ δ) where
   bind := bind
