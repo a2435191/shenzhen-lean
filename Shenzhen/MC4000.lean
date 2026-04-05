@@ -251,3 +251,14 @@ where
     let d₁ ← readRegOrInt ri₁
     let d₂ ← readRegOrInt ri₂
     modify (setCondIff (f d₁ d₂))
+
+#reduce
+  let instr : Instruction 1 := .mov (.simpleIO 0) (.xBus 0)
+  let fx := (effects instr)
+    |>.run #v[0, 0]
+    |>.run { init _ with simpleIOOut := #v[50, 25] }
+    |>.map Prod.snd
+  fx
+-- TODO: this is bad. We should want it to return something like
+-- `<the new simpleIOOut> × IOEffects XBus Integer (State m)`,
+-- since `simpleIOOut` can be mutated between ticks, not just at the end of an instruction's execution
