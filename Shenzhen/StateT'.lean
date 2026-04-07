@@ -3,7 +3,6 @@ def StateT' (σ : Type u) (m : Type u → Type u) (α : Type u) : Type u :=
   StateM σ (m α)
 
 namespace StateT'
-variable {m : Type u → Type u}
 
 protected def pure [Pure m] (a : α) : StateT' σ m α :=
   show StateM σ (m α) from do
@@ -62,4 +61,5 @@ instance [Applicative m] [LawfulApplicative m] : LawfulApplicative (StateT' σ m
     funext s
     simp [SeqRight.seqRight, Seq.seq, Functor.map]
 
--- TODO: Monad?
+-- I don't think any implementation of `bind` will respect `bind_map`, `pure_bind`, and `bind_assoc`
+-- So this remains an applicative
