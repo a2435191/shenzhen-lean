@@ -2,7 +2,7 @@ import Shenzhen.Instruction
 import Shenzhen.Integer
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
-import Shenzhen.BlockingEffects
+import Shenzhen.IOEffects
 import Shenzhen.Notation
 
 namespace MC4000
@@ -188,15 +188,16 @@ end mk'
 namespace State
 
 @[reducible]
-def InstructionEffects (m : Nat) : Type → Type :=
-  StateT (InstructionState m) <| BlockingEffects XBus SimpleIO TickState
+def Effects (m : Nat) : Type → Type :=
+  StateT (InstructionState m) <| IOEffects XBus SimpleIO TickState
 
-/-- Return a `BlockingEffects` within the greater monad -/
-def ret {m α} (bfx : BlockingEffects XBus SimpleIO TickState α) : InstructionEffects m α :=
+/-- Return an `IOEffects` within the greater monad -/
+def ret {m α} (bfx : IOEffects XBus SimpleIO TickState α) : Effects m α :=
   fun is => bfx <&> (·, is)
 
-/-- Calculate the effect of a single instruction, including tick effects. Does not update the instruction pointer. (TODO)  -/
-def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit := do
+/-- Calculate the effect of a single instruction, including tick effects.
+  Does **not** update the instruction pointer, however. -/
+def effects {m} (instr : Instruction m) : Effects m Unit := do
   match instr with
   -- Basic
   | .nop => return
@@ -236,7 +237,7 @@ def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit :
     let d₂ ← readRegOrInt ri₂
     modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
 where
-  readRegOrInt (ri : RegOrInt) : InstructionEffects m Integer := do
+  readRegOrInt (ri : RegOrInt) : Effects m Integer := do
     match ri with
     | .int n => return n
     | .null => return 0
@@ -244,7 +245,7 @@ where
     | .xBus x => do ret (.xBusRead x pure)
     | .simpleIO i => do ret (.simpleIORead i (TickState.clearSimpleIOOut i) (pure ∘ SimpleIOData.toInteger))
 
-  doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : InstructionEffects m Unit := do
+  doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : Effects m Unit := do
     let d ← readRegOrInt ri
     modify (.modifyAcc' f d)
 

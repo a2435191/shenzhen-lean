@@ -1,32 +1,32 @@
 import Shenzhen.Integer
 import Shenzhen.SimpleIOData
 
-/-- `BlockingEffects ξ ι α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
+/-- `IOEffects ξ ι α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
   We also record reads and writes from simple I/O pins, although they don't block.
   - `ξ` is the type of *X*Bus pins.
   - `ι` is the type of simple *I*/O pins.
   - `τ` is the type of the *t*ick state, i.e. the state that simple I/O operations
         can modify in the middle of an instruction's execution. -/
-inductive BlockingEffects (ξ : Type u) (ι : Type v) (τ : Type w) (α : Type x)
+inductive IOEffects (ξ : Type u) (ι : Type v) (τ : Type w) (α : Type x)
 /-- Just return a value immediately, without doing any effects. -/
 | pure (a : α)
 /-- `xBusRead pin next` represents a computation delayed until a value `d`
   from `pin` can be read; then `next d` is the result of the computation. -/
-| xBusRead (pin : ξ) (next : Integer → BlockingEffects ξ ι τ α)
+| xBusRead (pin : ξ) (next : Integer → IOEffects ξ ι τ α)
 /-- `d` is some data to be thereafter written out of `outPin`, and `next ()` is returned after the write. -/
-| xBusWrite (outPin : ξ) (d : Integer) (next : Unit → BlockingEffects ξ ι τ α)
+| xBusWrite (outPin : ξ) (d : Integer) (next : Unit → IOEffects ξ ι τ α)
 /-- `poll pin next` represents a computation delayed until the value
   from XBus pin `pin` arrives; then `next ()` is the result thereafter.
   This is used to implement the `slx` operation. -/
-| poll (pin : ξ) (next : Unit → BlockingEffects ξ ι τ α)
-| simpleIORead (pin : ι) (nextTickState : τ → τ) (next : SimpleIOData → BlockingEffects ξ ι τ α)
-| simpleIOWrite (outPin : ι) (nextTickState : τ → τ) (d : SimpleIOData) (next : Unit → BlockingEffects ξ ι τ α)
+| poll (pin : ξ) (next : Unit → IOEffects ξ ι τ α)
+| simpleIORead (pin : ι) (nextTickState : τ → τ) (next : SimpleIOData → IOEffects ξ ι τ α)
+| simpleIOWrite (outPin : ι) (nextTickState : τ → τ) (d : SimpleIOData) (next : Unit → IOEffects ξ ι τ α)
 /-- Wait for `ticks` ticks. -/
-| sleep (ticks : Nat) (h : ticks ≠ 0) (next : Unit → BlockingEffects ξ ι τ α)
+| sleep (ticks : Nat) (h : ticks ≠ 0) (next : Unit → IOEffects ξ ι τ α)
 
-namespace BlockingEffects
+namespace IOEffects
 
-instance [Inhabited α] : Inhabited (BlockingEffects ξ ι τ α) :=
+instance [Inhabited α] : Inhabited (IOEffects ξ ι τ α) :=
   ⟨pure default⟩
 
 -- @[simp]
@@ -39,7 +39,7 @@ instance [Inhabited α] : Inhabited (BlockingEffects ξ ι τ α) :=
 -- | .poll p next => .poll p fun () => map f (next ())
 -- | .sleep ticks h next => .sleep ticks h fun () => map f (next ())
 
-instance : Pure (BlockingEffects ξ ι τ ) where
+instance : Pure (IOEffects ξ ι τ ) where
   pure := .pure
 
 -- instance : Functor (BlockingEffects ξ ι τ) where
@@ -60,7 +60,7 @@ instance : Pure (BlockingEffects ξ ι τ ) where
 /-- You really should not be using data-dependent effects, as none of the instructions require them.
   But creating this `Monad` instance allows the use of `do` notation. -/
 @[simp]
-def bind (mx : BlockingEffects ξ ι τ α) (f : α → BlockingEffects ξ ι τ β) : BlockingEffects ξ ι τ β :=
+def bind (mx : IOEffects ξ ι τ α) (f : α → IOEffects ξ ι τ β) : IOEffects ξ ι τ β :=
   match mx with
   | pure a => f a
   | .xBusRead p next => .xBusRead p fun d => bind (next d) f
@@ -70,7 +70,7 @@ def bind (mx : BlockingEffects ξ ι τ α) (f : α → BlockingEffects ξ ι τ
   | .poll p next => .poll p fun () => bind (next ()) f
   | .sleep ticks h next => .sleep ticks h fun () => bind (next ()) f
 
-instance : Monad (BlockingEffects ξ ι τ) where
+instance : Monad (IOEffects ξ ι τ) where
   bind := bind
 
 section
@@ -78,17 +78,17 @@ section
 -- TODO: make this local
 attribute [simp] Functor.map Seq.seq Bind.bind Pure.pure
 
-theorem id_map (x : BlockingEffects ξ ι τ α) : id <$> x = x := by
+theorem id_map (x : IOEffects ξ ι τ α) : id <$> x = x := by
   induction x <;> try rfl
   all_goals
     simp; rename_i ih; funext; apply ih
 
-theorem bind_pure_comp (f : α → β) (x : BlockingEffects ξ ι τ α) : x >>= (fun a => pure (f a)) = f <$> x := by
+theorem bind_pure_comp (f : α → β) (x : IOEffects ξ ι τ α) : x >>= (fun a => pure (f a)) = f <$> x := by
   induction x
   all_goals
     simp <;> rename_i ih <;> funext <;> apply ih
 
-instance : LawfulMonad (BlockingEffects ξ τ ι) where
+instance : LawfulMonad (IOEffects ξ τ ι) where
   map_const := rfl
   id_map := id_map
   seqLeft_eq x y := by
@@ -111,9 +111,9 @@ instance : LawfulMonad (BlockingEffects ξ τ ι) where
 
 end
 
-def tickSleep : BlockingEffects ξ ι τ α → BlockingEffects ξ ι τ α
+def tickSleep : IOEffects ξ ι τ α → IOEffects ξ ι τ α
 | .sleep 1 _ next => next ()
 | .sleep (k + 2) _ next => .sleep (k + 1) (by simp) next
 | fx => fx
 
-end BlockingEffects
+end IOEffects
