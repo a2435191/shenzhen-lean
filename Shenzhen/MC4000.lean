@@ -189,14 +189,13 @@ namespace State
 
 @[reducible]
 def InstructionEffects (m : Nat) : Type → Type :=
-  StateT (InstructionState m) <| BlockingEffects XBus SimpleIO
+  StateT (InstructionState m) <| BlockingEffects XBus SimpleIO TickState
 
 /-- Return a `BlockingEffects` within the greater monad -/
-def ret {m α} (bfx : BlockingEffects XBus SimpleIO α) : InstructionEffects m α :=
+def ret {m α} (bfx : BlockingEffects XBus SimpleIO TickState α) : InstructionEffects m α :=
   fun is => bfx <&> (·, is)
 
-/-- Calculate the effect of a single instruction. Does update the instruction pointer.
-  Does *not* account for the tick effects (TODO, see `TickState`)  -/
+/-- Calculate the effect of a single instruction, including tick effects. Does not update the instruction pointer. (TODO)  -/
 def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit := do
   match instr with
   -- Basic
@@ -206,7 +205,9 @@ def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit :
     match dst with
     | .null => return
     | .internal .acc => modify ({· with acc := d})
-    | .simpleIO i => ret (.simpleIOWrite i d.toSimpleIOData pure)
+    | .simpleIO i =>
+      let d := d.toSimpleIOData
+      ret (.simpleIOWrite i (TickState.setSimpleIOOut i d) d pure)
     | .xBus x => ret (.xBusWrite x d pure)
   | .jmp _ => return -- the jump is taken care of elsewhere
   | .slp ri =>
@@ -241,7 +242,7 @@ where
     | .null => return 0
     | .internal .acc => return (←get).acc
     | .xBus x => do ret (.xBusRead x pure)
-    | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
+    | .simpleIO i => do ret (.simpleIORead i (TickState.clearSimpleIOOut i) (pure ∘ SimpleIOData.toInteger))
 
   doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : InstructionEffects m Unit := do
     let d ← readRegOrInt ri
