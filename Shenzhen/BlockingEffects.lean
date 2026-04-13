@@ -1,96 +1,92 @@
-/-- `BlockingEffects ξ δ α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
+import Shenzhen.Integer
+import Shenzhen.SimpleIOData
+
+/-- `BlockingEffects ξ ι α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
+  We also record reads and writes from simple I/O pins, although they don't block.
   - `ξ` is the type of *X*Bus pins.
-  - `δ` is the type of *d*ata read over XBus pins (probably `Integer`). -/
-inductive BlockingEffects (ξ : Type u) (δ : Type v) (α : Type w)
+  - `ι` is the type of simple *I*/O pins.-/
+inductive BlockingEffects (ξ : Type u) (ι : Type v) (α : Type w)
 /-- Just return a value immediately, without doing any effects. -/
 | pure (a : α)
-/-- `read pin next` represents a computation delayed until a value `d`
+/-- `xBusRead pin next` represents a computation delayed until a value `d`
   from `pin` can be read; then `next d` is the result of the computation. -/
-| read (pin : ξ) (next : δ → BlockingEffects ξ δ α)
+| xBusRead (pin : ξ) (next : Integer → BlockingEffects ξ ι α)
 /-- `d` is some data to be thereafter written out of `outPin`, and `next ()` is returned after the write. -/
-| write (outPin : ξ) (d : δ) (next : Unit → BlockingEffects ξ δ α)
+| xBusWrite (outPin : ξ) (d : Integer) (next : Unit → BlockingEffects ξ ι α)
 /-- `poll pin next` represents a computation delayed until the value
   from XBus pin `pin` arrives; then `next ()` is the result thereafter.
   This is used to implement the `slx` operation. -/
-| poll (pin : ξ) (next : Unit → BlockingEffects ξ δ α)
+| poll (pin : ξ) (next : Unit → BlockingEffects ξ ι α)
+| simpleIORead (pin : ι) (next : SimpleIOData → BlockingEffects ξ ι α)
+| simpleIOWrite (outPin : ι) (d : SimpleIOData) (next : Unit → BlockingEffects ξ ι α)
 /-- Wait for `ticks` ticks. -/
-| sleep (ticks : Nat) (h : ticks ≠ 0) (next : Unit → BlockingEffects ξ δ α)
+| sleep (ticks : Nat) (h : ticks ≠ 0) (next : Unit → BlockingEffects ξ ι α)
 
 namespace BlockingEffects
 
-instance [Inhabited α] : Inhabited (BlockingEffects ξ δ α) :=
+instance [Inhabited α] : Inhabited (BlockingEffects ξ ι α) :=
   ⟨pure default⟩
 
 @[simp]
-def map (f : α → β) : BlockingEffects ξ δ α → BlockingEffects ξ δ β
+def map (f : α → β) : BlockingEffects ξ ι α → BlockingEffects ξ ι β
 | .pure a => pure (f a)
-| .read p next => .read p fun d => map f (next d)
-| .write p d next => .write p d fun () => map f (next ())
+| .xBusRead p next => .xBusRead p fun d => map f (next d)
+| .simpleIORead p next => .simpleIORead p fun d => map f (next d)
+| .xBusWrite p d next => .xBusWrite p d fun () => map f (next ())
+| .simpleIOWrite p d next => .simpleIOWrite p d fun () => map f (next ())
 | .poll p next => .poll p fun () => map f (next ())
-| .sleep t h next => .sleep t h fun () => map f (next ())
+| .sleep ticks h next => .sleep ticks h fun () => map f (next ())
 
-instance : Pure (BlockingEffects ξ δ) where
+instance : Pure (BlockingEffects ξ ι) where
   pure := .pure
 
-instance : Functor (BlockingEffects ξ δ) where
+instance : Functor (BlockingEffects ξ ι) where
   map := map
 
-@[simp]
-def seq (mf : BlockingEffects ξ δ (α → β)) (mx : Unit → BlockingEffects ξ δ α) : BlockingEffects ξ δ β :=
-  match mf with
-  | pure f => f <$> mx ()
-  | .read p next => .read p fun d => seq (next d) mx
-  | .write p d next => .write p d fun () => seq (next ()) mx
-  | .poll p next => .poll p fun () => seq (next ()) mx
-  | .sleep t h next => .sleep t h fun () => seq (next ()) mx
+-- @[simp]
+-- def seq (mf : BlockingEffects ξ ι (α → β)) (mx : Unit → BlockingEffects ξ ι α) : BlockingEffects ξ ι β :=
+--   match mf with
+--   | pure f => f <$> mx ()
+--   | .xBusRead t p next => .read t p fun d => seq (next d) mx
+--   | .write t p d next => .write t p d fun () => seq (next ()) mx
+--   | .poll t p next => .poll t p fun () => seq (next ()) mx
+--   | .sleep t ticks h next => .sleep t ticks h fun () => seq (next ()) mx
 
-instance : Seq (BlockingEffects ξ δ) where
-  seq := seq
+-- instance : Seq (BlockingEffects ξ ι) where
+--   seq := seq
 
 /-- You really should not be using data-dependent effects, as none of the instructions require them.
   But creating this `Monad` instance allows the use of `do` notation. -/
 @[simp]
-def bind (mx : BlockingEffects ξ δ α) (f : α → BlockingEffects ξ δ β) : BlockingEffects ξ δ β :=
+def bind (mx : BlockingEffects ξ ι α) (f : α → BlockingEffects ξ ι β) : BlockingEffects ξ ι β :=
   match mx with
   | pure a => f a
-  | .read p next => .read p fun d => bind (next d) f
-  | .write p d next => .write p d fun () => bind (next ()) f
+  | .xBusRead p next => .xBusRead p fun d => bind (next d) f
+  | .simpleIORead p next => .simpleIORead p fun d => bind (next d) f
+  | .xBusWrite p d next => .xBusWrite p d fun () => bind (next ()) f
+  | .simpleIOWrite p d next => .simpleIOWrite p d fun () => bind (next ()) f
   | .poll p next => .poll p fun () => bind (next ()) f
-  | .sleep t h next => .sleep t h fun () => bind (next ()) f
+  | .sleep ticks h next => .sleep ticks h fun () => bind (next ()) f
 
-instance : Monad (BlockingEffects ξ δ) where
+instance : Monad (BlockingEffects ξ ι) where
   bind := bind
-
-#reduce
-  let M := BlockingEffects (Fin 2) Nat
-  let mx : M (Nat × Nat) :=
-    -- waiting on two reads
-    .read 0 fun d₁ => .read 0 fun d₂ => pure (d₁, d₂)
-  let my x : M Unit :=
-    .write 0 x fun () => .pure ()
-  let ms : M (Nat × Nat) := do
-    let (a, b) ← mx
-    my a
-    my b
-    return (a, b)
-  ms
 
 section
 
 -- TODO: make this local
 attribute [simp] Functor.map Seq.seq Bind.bind Pure.pure
 
-theorem id_map (x : BlockingEffects ξ δ α) : id <$> x = x := by
+theorem id_map (x : BlockingEffects ξ ι α) : id <$> x = x := by
   induction x <;> try rfl
   all_goals
     simp; rename_i ih; funext; apply ih
 
-theorem bind_pure_comp (f : α → β) (x : BlockingEffects ξ δ α) : x >>= (fun a => pure (f a)) = f <$> x := by
+theorem bind_pure_comp (f : α → β) (x : BlockingEffects ξ ι α) : x >>= (fun a => pure (f a)) = f <$> x := by
   induction x
   all_goals
     simp <;> rename_i ih <;> funext <;> apply ih
 
-instance : LawfulMonad (BlockingEffects ξ δ) where
+instance : LawfulMonad (BlockingEffects ξ ι) where
   map_const := rfl
   id_map := id_map
   seqLeft_eq x y := by
@@ -113,7 +109,7 @@ instance : LawfulMonad (BlockingEffects ξ δ) where
 
 end
 
-def tickSleep : BlockingEffects ξ δ α → BlockingEffects ξ δ α
+def tickSleep : BlockingEffects ξ ι α → BlockingEffects ξ ι α
 | .sleep 1 _ next => next ()
 | .sleep (k + 2) _ next => .sleep (k + 1) (by simp) next
 | fx => fx

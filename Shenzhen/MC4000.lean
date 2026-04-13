@@ -2,7 +2,7 @@ import Shenzhen.Instruction
 import Shenzhen.Integer
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
-import Shenzhen.XBusEffects
+import Shenzhen.BlockingEffects
 import Shenzhen.Notation
 
 namespace MC4000
@@ -22,22 +22,32 @@ namespace MC4000
 /-- The instruction pointer for an `MC4000` with `m` instructions. -/
 abbrev IP (m) := Option (Fin m)
 
-/-- Represents the state during some tick. While executing an instruction (possibly across multiple ticks, in the case that we block on XBus),
-  all fields stay the same except for `simpleIOOut`, which may change from one tick to another inside an instruction. See its notes -/
-structure State (numInstr : Nat) where
+/-- Represents the state during some instruction. While executing an instruction (possibly across multiple ticks, in the case that we block on XBus),
+  all fields stay the same -/
+structure InstructionState (numInstr : Nat) where
   acc : Integer
   cond : ConditionalState numInstr
   ip : IP numInstr
-  /-- The values being written out of each simple I/O pin. Reading
+deriving Repr
+
+/-! ## A note about simple I/O
+  "At any given time, a simple I/O pin is either in input mode or output mode. Writing a value
+  to a pin register will put the corresponding pin into output mode with the specified output value.
+  Reading a value from a pin register will put the corresponding pin into input mode, clearing any
+  previously set output value." (copied from the manual)
+
+  This is the only effect that can change the state of a chip mid-instruction. -/
+
+/-- Represents all the data that can be mutated within an instruction, i.e. from tick to tick. -/
+structure TickState where
+/-- The values being written out of each simple I/O pin. Reading
     from a pin sets this value to 0 (but the read value is just the max of all the other writers on this wire).
     See `effects`.
 
     This may change from one tick to another within an instruction.
     For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
-    out of `p0` before this instruction.
-    TODO: make this an effect?  -/
+    out of `p0` before this instruction. -/
   simpleIOOut : Vector SimpleIOData numSimpleIOPins
-deriving Repr
 
 abbrev Instruction (numInstr : Nat) :=
   _root_.Instruction (Fin numInstr) InternalReg XBus SimpleIO
@@ -45,11 +55,11 @@ abbrev Instruction (numInstr : Nat) :=
 abbrev RegOrInt :=
   _root_.Instruction.RegOrInt InternalReg XBus SimpleIO
 
-namespace State
+namespace InstructionState
 
-instance {m} : ToString (State m) where
+instance {m} : ToString (InstructionState m) where
   toString
-  | { acc, cond := c, ip, simpleIOOut } =>
+  | { acc, cond := c, ip } =>
     let condStr := match c.boolFlags with
       | (true, false) => "+"
       | (false, true) => "-"
@@ -57,51 +67,52 @@ instance {m} : ToString (State m) where
       | (true, true) => "?both true?"
     s!"[acc = {acc}; ip = {ip}; \
     cond = {condStr}; \
-    hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst}; \
-    simpleIOOut = {simpleIOOut.toList}"
+    hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst})"
 
-def init (m) : State m :=
+def init (m) : InstructionState m :=
   { acc := 0,
     cond := ⟨Vector.replicate m false, false, false⟩,
-    ip := if h : m = 0 then none else some ⟨0, Nat.zero_lt_of_ne_zero h⟩,
-    simpleIOOut := Vector.replicate numSimpleIOPins 0 }
+    ip := if h : m = 0 then none else some ⟨0, Nat.zero_lt_of_ne_zero h⟩ }
 
-instance : Inhabited (State m) :=
+instance : Inhabited (InstructionState m) :=
   ⟨init m⟩
 
 @[inline, specialize]
-def modifyAcc (f : Integer → Integer) : State m → State m :=
+def modifyAcc (f : Integer → Integer) : InstructionState m → InstructionState m :=
   fun state => { state with acc := f state.acc }
 
 /-- Set `acc` to `f acc other`. -/
 @[inline, specialize]
-def modifyAcc' (f : Integer → Integer → Integer) (other : Integer) : State m → State m :=
+def modifyAcc' (f : Integer → Integer → Integer) (other : Integer) : InstructionState m → InstructionState m :=
   modifyAcc (f · other)
 
 /-- Enable `pos` and disable `neg` instructions if `b` holds.
   Otherwise, disable `pos` and enable `neg` instructions. -/
-@[inline] def setCondIff (b : Bool) : State m → State m :=
+@[inline] def setCondIff (b : Bool) : InstructionState m → InstructionState m :=
   fun state => { state with cond := ⟨state.cond.hasRun, b, !b⟩ }
 
-@[inline] def setHasRun (which : Fin m) (b : Bool) : State m → State m :=
+@[inline] def setHasRun (which : Fin m) (b : Bool) : InstructionState m → InstructionState m :=
   fun state => { state with cond := {
     state.cond with hasRun := state.cond.hasRun.set which b }
   }
 
-@[inline] def setIP (new : IP m) : State m → State m :=
+@[inline] def setIP (new : IP m) : InstructionState m → InstructionState m :=
   ({ · with ip := new })
 
-@[inline] def modifyIP (f : IP m → IP m) : State m → State m :=
+@[inline] def modifyIP (f : IP m → IP m) : InstructionState m → InstructionState m :=
   fun state => { state with ip := f state.ip }
 
+end InstructionState
 
-@[inline] def setSimpleIOOut (i : SimpleIO) (val : SimpleIOData) : State m → State m :=
+namespace TickState
+
+@[inline] def setSimpleIOOut (i : SimpleIO) (val : SimpleIOData) : TickState → TickState :=
   fun state => { state with simpleIOOut := Vector.set state.simpleIOOut i val }
 
-@[inline] def clearSimpleIOOut (i : SimpleIO) : State m → State m :=
+@[inline] def clearSimpleIOOut (i : SimpleIO) : TickState → TickState :=
   setSimpleIOOut i 0
 
-end State
+end TickState
 
 namespace IP
 
@@ -176,20 +187,17 @@ end mk'
 
 namespace State
 
-/-! ## A note about simple I/O
-  "At any given time, a simple I/O pin is either in input mode or output mode. Writing a value
-  to a pin register will put the corresponding pin into output mode with the specified output value.
-  Reading a value from a pin register will put the corresponding pin into input mode, clearing any
-  previously set output value." (copied from the manual)
+@[reducible]
+def InstructionEffects (m : Nat) : Type → Type :=
+  StateT (InstructionState m) <| BlockingEffects XBus SimpleIO
 
-  This is the only effect that can change the state of a chip mid-instruction. -/
+/-- Return a `BlockingEffects` within the greater monad -/
+def ret {m α} (bfx : BlockingEffects XBus SimpleIO α) : InstructionEffects m α :=
+  fun is => bfx <&> (·, is)
 
-def ret {α} {m} [Functor m] : m α → ReaderT ρ (StateT σ m) α :=
-  fun a _ s => (·, s) <$> a
-
-/-- The `ReaderT` contains `simpleIOIn`, i.e. the max of the simple I/O signals over the wire for each simple I/O pin (not counting the current chip's output).
-  Does not update the instruction pointer. -/
-def effects {m} (instr : Instruction m) : ReaderT (Vector SimpleIOData numSimpleIOPins) (StateT (State m) (IOEffects XBus Integer)) Unit := do
+/-- Calculate the effect of a single instruction. Does update the instruction pointer.
+  Does *not* account for the tick effects (TODO, see `TickState`)  -/
+def instructionEffects {m} (instr : Instruction m) : InstructionEffects m Unit := do
   match instr with
   -- Basic
   | .nop => return
@@ -198,30 +206,26 @@ def effects {m} (instr : Instruction m) : ReaderT (Vector SimpleIOData numSimple
     match dst with
     | .null => return
     | .internal .acc => modify ({· with acc := d})
-    | .simpleIO i =>
-      modify (setSimpleIOOut i d.toSimpleIOData)
-      return
-    | .xBus x =>
-      ret <| .write x d pure
+    | .simpleIO i => ret (.simpleIOWrite i d.toSimpleIOData pure)
+    | .xBus x => ret (.xBusWrite x d pure)
   | .jmp _ => return -- the jump is taken care of elsewhere
   | .slp ri =>
     let d ← readRegOrInt ri
     match d.clampToNat with
     | 0 => return
     | k + 1 => ret <| .sleep (k + 1) (by simp) pure
-  | .slx r =>
-    ret (.poll r pure)
+  | .slx r => ret (.poll r pure)
   -- Arithmetic
   | .add ri => doArith ri (· + ·)
   | .sub ri => doArith ri (· - ·)
   | .mul ri => doArith ri (· * ·)
-  | .not => modify (modifyAcc Integer.not)
+  | .not => modify (.modifyAcc Integer.not)
   | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
   | .dst ri₁ ri₂ =>
     -- set the `ri₁`th digit of `acc` to `ri₂`
     let digit ← readRegOrInt ri₁
     let num ← readRegOrInt ri₂
-    modify (modifyAcc (Integer.setDigit · digit num))
+    modify (.modifyAcc (Integer.setDigit · digit num))
   -- Test (comparison)
   | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
   | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
@@ -231,34 +235,19 @@ def effects {m} (instr : Instruction m) : ReaderT (Vector SimpleIOData numSimple
     let d₂ ← readRegOrInt ri₂
     modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
 where
-  readRegOrInt ri := do
+  readRegOrInt (ri : RegOrInt) : InstructionEffects m Integer := do
     match ri with
-    | .int i => return i
+    | .int n => return n
     | .null => return 0
     | .internal .acc => return (←get).acc
-    | .simpleIO i => do
-      modify (clearSimpleIOOut i)
-      let simpleIOIn ← read
-      return simpleIOIn[i]
-    | .xBus x =>
-      ret <| .read x pure
+    | .xBus x => do ret (.xBusRead x pure)
+    | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
 
-  doArith ri f := do
+  doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : InstructionEffects m Unit := do
     let d ← readRegOrInt ri
-    modify (modifyAcc' f d)
+    modify (.modifyAcc' f d)
 
   doCmp ri₁ ri₂ f := do
     let d₁ ← readRegOrInt ri₁
     let d₂ ← readRegOrInt ri₂
-    modify (setCondIff (f d₁ d₂))
-
-#reduce
-  let instr : Instruction 1 := .mov (.simpleIO 0) (.xBus 0)
-  let fx := (effects instr)
-    |>.run #v[0, 0]
-    |>.run { init _ with simpleIOOut := #v[50, 25] }
-    |>.map Prod.snd
-  fx
--- TODO: this is bad. We should want it to return something like
--- `<the new simpleIOOut> × IOEffects XBus Integer (State m)`,
--- since `simpleIOOut` can be mutated between ticks, not just at the end of an instruction's execution
+    modify (.setCondIff (f d₁ d₂))
