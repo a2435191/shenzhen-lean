@@ -19,8 +19,37 @@ end MC4000
 
 namespace MC4000
 
-/-- The instruction pointer for an `MC4000` with `m` instructions. -/
-abbrev IP (m) := Option (Fin m)
+/-- `IP m` is the type of an instruction pointer for an `MC4000` with `m` instructions.
+  Chips can have zero instructions, so `IP m` is equivalent to `if m = 0 then Unit else Fin m`, but
+  this way we get `Repr` for free and nicer pattern-matching. -/
+inductive IP : Nat → Type
+| none : IP 0
+| ofFin : Fin m → IP m
+deriving Repr
+
+namespace IP
+
+instance : ReprAtom (IP 0) where
+
+def toFin (h : m ≠ 0) : IP m → Fin m
+| .none => False.elim (h rfl)
+| .ofFin x => x
+
+def mk' (ofNonZero : (m : Nat) → m ≠ 0 → Fin m) {m} : IP m :=
+  match m with
+  | 0 => .none
+  | k + 1 => .ofFin <| ofNonZero (k + 1) (by simp)
+
+/-- `(0 : Fin m)` unless `m = 0` -/
+def null : IP m :=
+  .mk' fun _ h => ⟨0, Nat.zero_lt_of_ne_zero h⟩
+
+instance : Inhabited (IP m) where
+  default := .null
+
+instance : Coe (Fin m) (IP m) := ⟨.ofFin⟩
+
+end IP
 
 /-- Represents the state during some instruction. While executing an instruction (possibly across multiple ticks, in the case that we block on XBus),
   all fields stay the same -/
@@ -65,14 +94,14 @@ instance {m} : ToString (InstructionState m) where
       | (false, true) => "-"
       | (false, false) => "none"
       | (true, true) => "?both true?"
-    s!"[acc = {acc}; ip = {ip}; \
+    s!"[acc = {acc}; ip = {repr ip}; \
     cond = {condStr}; \
     hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst})"
 
 def init (m) : InstructionState m :=
   { acc := 0,
     cond := ⟨Vector.replicate m false, false, false⟩,
-    ip := if h : m = 0 then none else some ⟨0, Nat.zero_lt_of_ne_zero h⟩ }
+    ip := .null }
 
 instance : Inhabited (InstructionState m) :=
   ⟨init m⟩
@@ -118,9 +147,10 @@ namespace IP
 
 /-- Update the instruction pointer to its immediate successor,
   or `0` if the current IP is `none` and `m > 0`. -/
-def succ : IP m → IP m
-| none => if h : m > 0 then some ⟨0, h⟩ else none
-| some i => i.succ'
+def succ : IP m → IP m :=
+  match m with
+  | 0 => id
+  | _ + 1 => sorry
 
 /-- Update the instruction pointer to that of the next instruction,
   ignoring `state.sleep` and `+`/`-`/`@` conditionals. That is,
@@ -129,17 +159,6 @@ def succ : IP m → IP m
 def next : Instruction m → IP m → IP m
 | .jmp l => fun _ => l
 | _ => succ
-
-/-- Consider a chip with `m` conditional flags in the source (including `.none`) and
-  the current conditional state `cond`. `currOrNextEnabled flags cond curr`
-  returns the first (if one exists) instruction pointer `j ≥ curr` such that `j` is enabled under `cond` and `flags[j]`.  -/
-def currOrNextEnabled (flags : Vector ConditionalFlag m) (cond : ConditionalState m) (curr : IP m) : IP m :=
-  let instrEnabled j := flags[j].isEnabled cond j
-  match curr with
-  | none => Fin.find? instrEnabled
-  | some ip =>
-    if instrEnabled ip then some ip
-    else Fin.nextFinIdx? ip instrEnabled
 
 end MC4000.IP
 
