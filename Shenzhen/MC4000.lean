@@ -253,3 +253,17 @@ where
     let d₁ ← readRegOrInt ri₁
     let d₂ ← readRegOrInt ri₂
     modify (.setCondIff (f d₁ d₂))
+
+/-- Find the index `i` of the next instruction at or after `start` that
+  is enabled according to `flags[i]` and `cond`, looping back around from
+  `i = m - 1` to `i = 0` if necessary. -/
+def nextIP {m} (flags : Vector ConditionalFlag m)
+    (start : Fin m) (cond : ConditionalState m) : IP m :=
+  let foundOffset := Fin.find? fun offset =>
+    let i := offset + start
+    match flags[i] with
+    | .none => true
+    | .pos => cond.posEnabled
+    | .neg => cond.negEnabled
+    | .once => !cond.hasRun[i]
+  foundOffset <&> (· + start)
