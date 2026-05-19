@@ -195,14 +195,9 @@ def Effects (m : Nat) : Type → Type :=
 def ret {m α} (bfx : IOEffects XBus SimpleIO TickState α) : Effects m α :=
   fun is => bfx <&> (·, is)
 
-/-- Calculate the effect of a single instruction, including tick effects. Updates
-  the instruction pointer to `nextIP` at the end of an instruction, except in a `jmp`. -/
-def effects {m} (instr : Instruction m) (nextIP : Fin m) : Effects m Unit := do
-  modify <| InstructionState.setIP <|
-    match instr with
-    | .jmp l => l
-    | _ => nextIP
-
+/-- Calculate the effect of a single instruction, including tick effects. Does not
+  update the instruction pointer at all. -/
+def effects {m} (instr : Instruction m) : Effects m Unit := do
   match instr with
   -- Basic
   | .nop => return
@@ -215,12 +210,12 @@ def effects {m} (instr : Instruction m) (nextIP : Fin m) : Effects m Unit := do
       let d := d.toSimpleIOData
       ret (.simpleIOWrite i (TickState.setSimpleIOOut i d) d pure)
     | .xBus x => ret (.xBusWrite x d pure)
-  | .jmp _ => return -- the jump is taken care of above
+  | .jmp _ => return -- the jump is taken care of elsewhere
   | .slp ri =>
     let d ← readRegOrInt ri
     match d.clampToNat with
     | 0 => return
-    | k + 1 => ret <| .sleep (k + 1) (by simp) pure
+    | k + 1 => ret <| .sleep (k + 1) (Nat.succ_ne_zero _) pure
   | .slx r => ret (.poll r pure)
   -- Arithmetic
   | .add ri => doArith ri (· + ·)
