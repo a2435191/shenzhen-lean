@@ -29,33 +29,9 @@ namespace IOEffects
 instance [Inhabited α] : Inhabited (IOEffects ξ ι τ α) :=
   ⟨pure default⟩
 
--- @[simp]
--- def map (f : α → β) : BlockingEffects ξ ι τ α → BlockingEffects ξ ι τ β
--- | .pure a => pure (f a)
--- | .xBusRead p next => .xBusRead p fun d => map f (next d)
--- | .simpleIORead p next => .simpleIORead p fun d => map f (next d)
--- | .xBusWrite p d next => .xBusWrite p d fun () => map f (next ())
--- | .simpleIOWrite p d next => .simpleIOWrite p d fun () => map f (next ())
--- | .poll p next => .poll p fun () => map f (next ())
--- | .sleep ticks h next => .sleep ticks h fun () => map f (next ())
 
 instance : Pure (IOEffects ξ ι τ ) where
   pure := .pure
-
--- instance : Functor (BlockingEffects ξ ι τ) where
---   map := map
-
--- @[simp]
--- def seq (mf : BlockingEffects ξ ι (α → β)) (mx : Unit → BlockingEffects ξ ι α) : BlockingEffects ξ ι β :=
---   match mf with
---   | pure f => f <$> mx ()
---   | .xBusRead t p next => .read t p fun d => seq (next d) mx
---   | .write t p d next => .write t p d fun () => seq (next ()) mx
---   | .poll t p next => .poll t p fun () => seq (next ()) mx
---   | .sleep t ticks h next => .sleep t ticks h fun () => seq (next ()) mx
-
--- instance : Seq (BlockingEffects ξ ι) where
---   seq := seq
 
 /-- You really should not be using data-dependent effects, as none of the instructions require them.
   But creating this `Monad` instance allows the use of `do` notation. -/
