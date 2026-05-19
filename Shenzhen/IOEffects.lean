@@ -113,7 +113,7 @@ end
 
 def tickSleep : IOEffects ξ ι τ α → IOEffects ξ ι τ α
 | .sleep 1 _ next => next ()
-| .sleep (k + 2) _ next => .sleep (k + 1) (by simp) next
+| .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
 | fx => fx
 
 end IOEffects
