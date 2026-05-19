@@ -256,9 +256,11 @@ where
 
 /-- Find the index `i` of the next instruction at or after `start` that
   is enabled according to `flags[i]` and `cond`, looping back around from
-  `i = m - 1` to `i = 0` if necessary. -/
+  `i = m - 1` to `i = 0` if necessary. `none` if no such index exists.
+  (We skip the `IP` constructor because it would always be a `Fin m`,
+  as `m ≠ 0` by the existence of `start`.) -/
 def nextIP {m} (flags : Vector ConditionalFlag m)
-    (start : Fin m) (cond : ConditionalState m) : IP m :=
+    (start : Fin m) (cond : ConditionalState m) : Option (Fin m) :=
   let foundOffset := Fin.find? fun offset =>
     let i := offset + start
     match flags[i] with
