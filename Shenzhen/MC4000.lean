@@ -269,3 +269,15 @@ def nextIP {m} (flags : Vector ConditionalFlag m)
     | .neg => cond.negEnabled
     | .once => !cond.hasRun[i]
   foundOffset <&> (· + start)
+
+/-- Advance the IP inside `StateM` to the location of the next currently enabled instruction.
+  If impossible, stays on the current IP. Returns success (inside `StateM`). -/
+def advanceIP {m} (flags : Vector ConditionalFlag m) : StateM (InstructionState m) Bool := do
+  let state ← get
+  let .ofFin ip := state.ip | return false
+  let next := nextIP flags ip state.cond
+  match next with
+  | none => return false
+  | some ip' =>
+    modify <| InstructionState.setIP ip'
+    return true
