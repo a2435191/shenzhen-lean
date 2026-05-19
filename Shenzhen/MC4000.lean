@@ -141,7 +141,7 @@ namespace TickState
 @[inline] def clearSimpleIOOut (i : SimpleIO) : TickState → TickState :=
   setSimpleIOOut i 0
 
-end TickState
+end MC4000.TickState
 
 open MC4000 in
 structure MC4000 where
