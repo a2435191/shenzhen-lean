@@ -21,8 +21,8 @@ inductive IOEffects (ξ : Type u) (ι : Type v) (τ : Type w) (α : Type x)
 | poll (pin : ξ) (next : Unit → IOEffects ξ ι τ α)
 | simpleIORead (pin : ι) (nextTickState : τ → τ) (next : SimpleIOData → IOEffects ξ ι τ α)
 | simpleIOWrite (outPin : ι) (nextTickState : τ → τ) (d : SimpleIOData) (next : Unit → IOEffects ξ ι τ α)
-/-- Wait for `ticks` ticks. -/
-| sleep (ticks : Nat) (h : ticks ≠ 0) (next : Unit → IOEffects ξ ι τ α)
+/-- Wait for `n` time units. -/
+| sleep (n : Nat) (h : n ≠ 0) (next : Unit → IOEffects ξ ι τ α)
 
 namespace IOEffects
 
@@ -44,7 +44,7 @@ def bind (mx : IOEffects ξ ι τ α) (f : α → IOEffects ξ ι τ β) : IOEff
   | .xBusWrite p d next => .xBusWrite p d fun () => bind (next ()) f
   | .simpleIOWrite p t d next => .simpleIOWrite p t d fun () => bind (next ()) f
   | .poll p next => .poll p fun () => bind (next ()) f
-  | .sleep ticks h next => .sleep ticks h fun () => bind (next ()) f
+  | .sleep n h next => .sleep n h fun () => bind (next ()) f
 
 instance : Monad (IOEffects ξ ι τ) where
   bind := bind
@@ -87,7 +87,7 @@ instance : LawfulMonad (IOEffects ξ τ ι) where
 
 end
 
-def tickSleep : IOEffects ξ ι τ α → IOEffects ξ ι τ α
+def sleepOne : IOEffects ξ ι τ α → IOEffects ξ ι τ α
 | .sleep 1 _ next => next ()
 | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
 | fx => fx

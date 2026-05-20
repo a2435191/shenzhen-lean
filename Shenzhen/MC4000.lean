@@ -51,7 +51,7 @@ instance : Coe (Fin m) (IP m) := ⟨.ofFin⟩
 
 end IP
 
-/-- Represents the state during some instruction. While executing an instruction (possibly across multiple ticks, in the case that we block on XBus),
+/-- Represents the state during some instruction. While executing an instruction (possibly across multiple , in the case that we block on XBus),
   all fields stay the same -/
 structure InstructionState (numInstr : Nat) where
   acc : Integer
@@ -67,13 +67,14 @@ deriving Repr
 
   This is the only effect that can change the state of a chip mid-instruction. -/
 
-/-- Represents all the data that can be mutated within an instruction, i.e. from tick to tick. -/
+/-- Represents all the data that can be mutated within an instruction, i.e. from tick to tick.
+  (tick = CPU cycle, multiple of which happen in a single time unit) -/
 structure TickState where
 /-- The values being written out of each simple I/O pin. Reading
     from a pin sets this value to 0 (but the read value is just the max of all the other writers on this wire).
     See `effects`.
 
-    This may change from one tick to another within an instruction.
+    This may change from one CPU cycle to another within an instruction.
     For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
     out of `p0` before this instruction. -/
   simpleIOOut : Vector SimpleIOData numSimpleIOPins
@@ -195,7 +196,7 @@ def Effects (m : Nat) : Type → Type :=
 def ret {m α} (bfx : IOEffects XBus SimpleIO TickState α) : Effects m α :=
   fun is => bfx <&> (·, is)
 
-/-- Calculate the effect of a single instruction, including tick effects. Does not
+/-- Calculate the effect of a single instruction, including effects within a single time unit (i.e. changing state between CPU cycles/ticks). Does not
   update the instruction pointer at all. -/
 def effects {m} (instr : Instruction m) : Effects m Unit := do
   match instr with
@@ -281,3 +282,6 @@ def advanceIP {m} (flags : Vector ConditionalFlag m) : StateM (InstructionState 
   | some ip' =>
     modify <| InstructionState.setIP ip'
     return true
+
+/-- Advance one CPU cycle. -/
+def tick : sorry := sorry
