@@ -1,45 +1,50 @@
 import Shenzhen.Integer
 import Shenzhen.SimpleIOData
 
-/-- `IOEffects ξ α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
+/-- `IOEffects ξ ι α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
   We also record reads and writes from simple I/O pins, although they don't block.
-  - `ξ` is the type of *X*Bus pins.-/
-inductive IOEffects (ξ : Type u) (α : Type x)
+  - `ξ` is the type of *X*Bus pins.
+  - `ι` is the type of simple *I*/O pins.-/
+inductive IOEffects (ξ : Type u) (ι : Type v) (α : Type x)
 /-- Just return a value immediately, without doing any effects. -/
 | pure (a : α)
 /-- `xBusRead pin next` represents a computation delayed until a value `d`
   from `pin` can be read; then `next d` is the result of the computation. -/
-| xBusRead (pin : ξ) (next : Integer → IOEffects ξ α)
+| xBusRead (pin : ξ) (next : Integer → IOEffects ξ ι α)
 /-- `d` is some data to be thereafter written out of `outPin`, and `next ()` is returned after the write. -/
-| xBusWrite (outPin : ξ) (d : Integer) (next : Unit → IOEffects ξ α)
+| xBusWrite (outPin : ξ) (d : Integer) (next : Unit → IOEffects ξ ι α)
 /-- `xBusPoll pin next` represents a computation delayed until the value
   from XBus pin `pin` arrives; then `next ()` is the result thereafter.
   This is used to implement the `slx` operation. -/
-| xBusPoll (pin : ξ) (next : Unit → IOEffects ξ α)
+| xBusPoll (pin : ξ) (next : Unit → IOEffects ξ ι α)
+| simpleIORead (pin : ι) (next : SimpleIOData → IOEffects ξ ι α)
+| simpleIOWrite (outPin : ι) (d : SimpleIOData) (next : Unit → IOEffects ξ ι α)
 /-- Wait for `n` time units. -/
-| sleep (n : Nat) (h : n ≠ 0) (next : Unit → IOEffects ξ α)
+| sleep (n : Nat) (h : n ≠ 0) (next : Unit → IOEffects ξ ι α)
 
 namespace IOEffects
 
-instance [Inhabited α] : Inhabited (IOEffects ξ α) :=
+instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
   ⟨pure default⟩
 
 
-instance : Pure (IOEffects ξ) where
+instance : Pure (IOEffects ξ ι) where
   pure := .pure
 
 /-- You really should not be using data-dependent effects, as none of the instructions require them.
   But creating this `Monad` instance allows the use of `do` notation. -/
 @[simp]
-def bind (mx : IOEffects ξ α) (f : α → IOEffects ξ ι) : IOEffects ξ ι :=
+def bind (mx : IOEffects ξ ι α) (f : α → IOEffects ξ ι β) : IOEffects ξ ι β :=
   match mx with
   | pure a => f a
   | .xBusRead p next => .xBusRead p fun d => bind (next d) f
+  | .simpleIORead p next => .simpleIORead p fun d => bind (next d) f
   | .xBusWrite p d next => .xBusWrite p d fun () => bind (next ()) f
+  | .simpleIOWrite p d next => .simpleIOWrite p d fun () => bind (next ()) f
   | xBusPoll p next => xBusPoll p fun () => bind (next ()) f
   | .sleep n h next => .sleep n h fun () => bind (next ()) f
 
-instance : Monad (IOEffects ξ) where
+instance : Monad (IOEffects ξ ι) where
   bind := bind
 
 section
@@ -47,17 +52,17 @@ section
 -- TODO: make this local
 attribute [simp] Functor.map Seq.seq Bind.bind Pure.pure
 
-theorem id_map (x : IOEffects ξ α) : id <$> x = x := by
+theorem id_map (x : IOEffects ξ ι α) : id <$> x = x := by
   induction x <;> try rfl
   all_goals
     simp; rename_i ih; funext; apply ih
 
-theorem bind_pure_comp (f : α → β) (x : IOEffects ξ α) : x >>= (fun a => pure (f a)) = f <$> x := by
+theorem bind_pure_comp (f : α → β) (x : IOEffects ξ ι α) : x >>= (fun a => pure (f a)) = f <$> x := by
   induction x
   all_goals
     simp <;> rename_i ih <;> funext <;> apply ih
 
-instance : LawfulMonad (IOEffects ξ) where
+instance : LawfulMonad (IOEffects ξ ι) where
   map_const := rfl
   id_map := id_map
   seqLeft_eq x y := by
@@ -80,12 +85,12 @@ instance : LawfulMonad (IOEffects ξ) where
 
 end
 
-def sleepOne : IOEffects ξ α → IOEffects ξ α
+def sleepOne : IOEffects ξ ι α → IOEffects ξ ι α
 | .sleep 1 _ next => next ()
 | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
 | fx => fx
 
-abbrev isSleep : IOEffects ξ α → Bool
+abbrev isSleep : IOEffects ξ ι α → Bool
 | .sleep .. => true
 | _ => false
 

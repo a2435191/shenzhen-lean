@@ -190,20 +190,16 @@ end mk'
 namespace State
 
 @[reducible]
-def Effects (m : Nat) (α : Type) : Type :=
-  InstructionState m → TickState → IOEffects XBus (α × InstructionState m) × TickState
+def Effects (m : Nat) : Type → Type :=
+  StateT (InstructionState m) <| IOEffects XBus SimpleIO
 
-def Effects.pure {m} (a : α) : Effects m α :=
-  fun s t => (.pure (a, s), t)
-
-#check Seq.seq
 /-- Return an `IOEffects` within the greater monad -/
-def ret {m α} (bfx : IOEffects XBus α) : Effects m α :=
-  fun s t => (bfx <&> (·, s), t)
+def ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
+  fun is => bfx <&> (·, is)
 
 /-- Calculate the effect of a single instruction, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks, i.e. `TickState`). Does not
   update the instruction pointer at all. -/
-def instructionEffects {m} (instr : Instruction m) : Effects m Unit :=
+def instructionEffects {m} (instr : Instruction m) : Effects m Unit := do
   match instr with
   -- Basic
   | .nop => return
@@ -336,7 +332,6 @@ def resolveSimpleIOReads {n : ℕ}
 def advanceTick {n : ℕ}
     (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
     (effects : Vector ((m : ℕ) × Effects m Unit) n) : Vector ((m : ℕ) × Effects m Unit) n :=
-
   sorry
 
 
