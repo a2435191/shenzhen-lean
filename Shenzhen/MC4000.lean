@@ -301,7 +301,7 @@ def States.map {chips : Vector MC4000 n} (f : {m : ℕ} → Effects m Unit → E
 -- def States.mapFinIdx
 
 /-- Resolve all `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields. -/
-def tick.resolveSimpleIOReads {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO)
+def advanceTick.resolveSimpleIOReads {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO)
                               (states : States chips) : States chips :=
 
   let states' : Vector ((m : ℕ) × Effects m Unit) n :=
@@ -320,7 +320,7 @@ def tick.resolveSimpleIOReads {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns
   The effect of running this function `n` times for large `n` should be to get all chips
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
-def tick {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
+def advanceTick {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
          (states : States chips) : States chips :=
 
   sorry
