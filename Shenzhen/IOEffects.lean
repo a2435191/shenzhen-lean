@@ -92,4 +92,8 @@ def sleepOne : IOEffects ξ ι τ α → IOEffects ξ ι τ α
 | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
 | fx => fx
 
+abbrev isSleep : IOEffects ξ ι τ α → Bool
+| .sleep .. => true
+| _ => false
+
 end IOEffects
