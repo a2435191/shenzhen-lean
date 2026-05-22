@@ -51,7 +51,7 @@ instance : Coe (Fin m) (IP m) := ⟨.ofFin⟩
 
 end IP
 
-/-- Represents the state during some instruction. While executing an instruction (possibly across multiple , in the case that we block on XBus),
+/-- Represents the state during some instruction. While executing an instruction (possibly across multiple, in the case that we block on XBus),
   all fields stay the same -/
 structure InstructionState (numInstr : Nat) where
   acc : Integer
@@ -78,6 +78,7 @@ structure TickState where
     For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
     out of `p0` before this instruction. -/
   simpleIOOut : Vector SimpleIOData numSimpleIOPins
+  -- TODO do I also need to keep track of a boolean flag for each pin?
 
 abbrev Instruction (numInstr : Nat) :=
   _root_.Instruction (Fin numInstr) InternalReg XBus SimpleIO
