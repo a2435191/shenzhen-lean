@@ -67,7 +67,8 @@ deriving Repr
 
   This is the only effect that can change the state of a chip mid-instruction. -/
 
-/-- Represents all the data that can be mutated within an instruction, i.e. from tick to tick.
+/-- Represents all the data that can be mutated within an instruction, i.e. from tick to tick. Of course these mutations
+  may persist into the next tick(s).
   (tick = CPU cycle, multiple of which happen in a single time unit) -/
 structure TickState where
 /-- The values being written out of each simple I/O pin. Reading
@@ -295,9 +296,11 @@ def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : Li
 abbrev Effects.WithTickState (m : ℕ) (α : Type) :=
   TickState → InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m) × TickState
 
+-- TODO think about if `effects` should be `Vector ((m : ℕ) × Effects.WithTickState m Unit) n` instead and what that would entail
 /-- Resolve all `IOEffects.simpleIOWrite`s by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
 def resolveSimpleIOWrites {n : ℕ} (effects : Vector ((m : ℕ) × Effects m Unit) n)
-    : Vector ((m : ℕ) × (Effects.WithTickState m Unit)) n :=
+    (tickStates : Vector TickState n)
+    : Vector ((m : ℕ) × Effects.WithTickState m Unit) n :=
   effects.map fun ⟨m, e⟩ => Sigma.mk m fun t s =>
     match e s with
     | .simpleIOWrite pin d next => (next (), t.setSimpleIOOut pin d)
@@ -307,7 +310,7 @@ def resolveSimpleIOWrites {n : ℕ} (effects : Vector ((m : ℕ) × Effects m Un
   to zero wherever a read occurs. -/
 def resolveSimpleIOReads {n : ℕ}
     (simpleIOConns : Conns n SimpleIO) (effects : Vector ((m : ℕ) × Effects m Unit) n)
-    : Vector ((m : ℕ) × (Effects.WithTickState m Unit)) n :=
+    : Vector ((m : ℕ) × Effects.WithTickState m Unit) n :=
   effects.mapFinIdx' fun i ⟨m, e⟩ => Sigma.mk m fun t s =>
     match e s with
     | .simpleIORead pin next =>
@@ -317,6 +320,8 @@ def resolveSimpleIOReads {n : ℕ}
         |>.getD 0
       (next max, t.clearSimpleIOOut pin)
     | other => (other, t)
+
+-- def resolveXBus {n : ℕ} (xBusConns : Conns n XBus) (effects : )
 
 /-- Advance one CPU cycle across many interconnected chips. That means
   we execute the entire leading contiguous sequence of simple I/O operations (`IOEffects.simpleIORead` and `.simpleIOWrite`) and computation
