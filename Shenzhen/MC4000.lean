@@ -298,7 +298,8 @@ abbrev States {n : ℕ} (chips : Vector MC4000 n) :=
 def States.map {chips : Vector MC4000 n} (f : {m : ℕ} → Effects m Unit → Effects m Unit) : States chips → States chips
 | ⟨val, h⟩ => ⟨val.map fun ⟨m, fx⟩ => ⟨m, f fx⟩, by simp only [h]; simp⟩
 
--- def States.mapFinIdx
+def States.mapFinIdx {chips : Vector MC4000 n} (f : {m : ℕ} → Fin n → Effects m Unit → Effects m Unit) : States chips → States chips
+| ⟨val, h⟩ => ⟨val.mapFinIdx' fun i ⟨m, fx⟩ => ⟨m, f i fx⟩, by simp only [h]; simp [Vector.mapFinIdx']⟩
 
 /-- Resolve all `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields. -/
 def advanceTick.resolveSimpleIOReads {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO)
