@@ -31,8 +31,6 @@ instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
 instance : Pure (IOEffects ξ ι) where
   pure := .pure
 
-/-- You really should not be using data-dependent effects, as none of the instructions require them.
-  But creating this `Monad` instance allows the use of `do` notation. -/
 @[simp]
 def bind (mx : IOEffects ξ ι α) (f : α → IOEffects ξ ι β) : IOEffects ξ ι β :=
   match mx with
