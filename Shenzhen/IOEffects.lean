@@ -15,10 +15,10 @@ inductive IOEffects (ξ : Type u) (ι : Type v) (τ : Type w) (α : Type x)
 | xBusRead (pin : ξ) (next : Integer → IOEffects ξ ι τ α)
 /-- `d` is some data to be thereafter written out of `outPin`, and `next ()` is returned after the write. -/
 | xBusWrite (outPin : ξ) (d : Integer) (next : Unit → IOEffects ξ ι τ α)
-/-- `poll pin next` represents a computation delayed until the value
+/-- `xBusPoll pin next` represents a computation delayed until the value
   from XBus pin `pin` arrives; then `next ()` is the result thereafter.
   This is used to implement the `slx` operation. -/
-| poll (pin : ξ) (next : Unit → IOEffects ξ ι τ α)
+| xBusPoll (pin : ξ) (next : Unit → IOEffects ξ ι τ α)
 | simpleIORead (pin : ι) (nextTickState : τ → τ) (next : SimpleIOData → IOEffects ξ ι τ α)
 | simpleIOWrite (outPin : ι) (nextTickState : τ → τ) (d : SimpleIOData) (next : Unit → IOEffects ξ ι τ α)
 /-- Wait for `n` time units. -/
@@ -43,7 +43,7 @@ def bind (mx : IOEffects ξ ι τ α) (f : α → IOEffects ξ ι τ β) : IOEff
   | .simpleIORead p t next => .simpleIORead p t fun d => bind (next d) f
   | .xBusWrite p d next => .xBusWrite p d fun () => bind (next ()) f
   | .simpleIOWrite p t d next => .simpleIOWrite p t d fun () => bind (next ()) f
-  | .poll p next => .poll p fun () => bind (next ()) f
+  | xBusPoll p next => xBusPoll p fun () => bind (next ()) f
   | .sleep n h next => .sleep n h fun () => bind (next ()) f
 
 instance : Monad (IOEffects ξ ι τ) where

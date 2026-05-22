@@ -217,7 +217,7 @@ def effects {m} (instr : Instruction m) : Effects m Unit := do
     match d.clampToNat with
     | 0 => return
     | k + 1 => ret <| .sleep (k + 1) (Nat.succ_ne_zero _) pure
-  | .slx r => ret (.poll r pure)
+  | .slx r => ret (.xBusPoll r pure)
   -- Arithmetic
   | .add ri => doArith ri (· + ·)
   | .sub ri => doArith ri (· - ·)
