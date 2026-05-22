@@ -292,23 +292,45 @@ abbrev Conns (nChips : ℕ) (connType : Type) :=
 def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : List (Fin n × Fin m) :=
   (List.finRange n).product (List.finRange m)|>.filter (conns (i, j))
 
-abbrev States {n : ℕ} (chips : Vector MC4000 n) :=
-  { states : Vector ((m : ℕ) × Effects m Unit) n // ∀ (i : Fin n), chips[i].m = states[i].1 }
+abbrev Effects.WithTickState (m : ℕ) (α : Type) :=
+  TickState → InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m) × TickState
 
-def States.map {chips : Vector MC4000 n} (f : {m : ℕ} → Effects m Unit → Effects m Unit) : States chips → States chips
+/-- Vector of instruction states, accessed via `Effects mᵢ Unit`, where each `mᵢ` matches the `m` in `chips[i]` -/
+abbrev EffectsVec {n : ℕ} (chips : Vector MC4000 n) (α : Type) :=
+  { v : Vector ((m : ℕ) × Effects m α) n // ∀ (i : Fin n), chips[i].m = v[i].1 }
+
+def EffectsVec.map {chips : Vector MC4000 n} (f : {m : ℕ} → Effects m α → Effects m β) : EffectsVec chips α → EffectsVec chips β
 | ⟨val, h⟩ => ⟨val.map fun ⟨m, fx⟩ => ⟨m, f fx⟩, by simp only [h]; simp⟩
 
-def States.mapFinIdx {chips : Vector MC4000 n} (f : {m : ℕ} → Fin n → Effects m Unit → Effects m Unit) : States chips → States chips
+def EffectsVec.mapFinIdx {chips : Vector MC4000 n} (f : {m : ℕ} → Fin n → Effects m α → Effects m β) : EffectsVec chips α → EffectsVec chips β
 | ⟨val, h⟩ => ⟨val.mapFinIdx' fun i ⟨m, fx⟩ => ⟨m, f i fx⟩, by simp only [h]; simp [Vector.mapFinIdx']⟩
 
-/-- Resolve all `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields. -/
-def advanceTick.resolveSimpleIOReads {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO)
-                              (states : States chips) : States chips :=
+/-- Resolve all `IOEffects.simpleIOWrite`s by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
+def resolveSimpleIOWrites {n : ℕ} (chips : Vector MC4000 n) (effects : EffectsVec chips Unit)
+    : { v : Vector ((m : ℕ) × (Effects.WithTickState m Unit)) n // ∀ (i : Fin n), chips[i].m = v[i].1 } :=
+  let := effects.val.mapFinIdx' fun i ⟨m, e⟩ =>
+    Sigma.mk m fun t s =>
+      match e s with
+      | .simpleIOWrite pin d next => (next (), t.setSimpleIOOut pin d)
+      | other => (other, t)
+  ⟨this, by simp only [this, effects.property]; simp [Vector.mapFinIdx']⟩
 
-  let states' : Vector ((m : ℕ) × Effects m Unit) n :=
-    states.val.mapFinIdx' fun i ⟨m, fx⟩ =>
-      sorry
-  sorry
+/-- Resolve all `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
+  to zero wherever a read occurs. -/
+def resolveSimpleIOReads {n : ℕ} (simpleIOConns : Conns n SimpleIO) (chips : Vector MC4000 n)
+    (effects : EffectsVec chips Unit) : { v : Vector ((m : ℕ) × (Effects.WithTickState m Unit)) n // ∀ (i : Fin n), chips[i].m = v[i].1 } :=
+  let_delayed := effects.val.mapFinIdx' fun i ⟨m, e⟩ =>
+    Sigma.mk m fun t s =>
+      match e s with
+      | .simpleIORead pin next =>
+        let max : SimpleIOData := simpleIOConns.neighbors i pin
+          |>.map (fun (i', pin') => t.simpleIOOut[pin'])
+          |>.max?
+          |>.getD 0
+        (next max, t.clearSimpleIOOut pin)
+      | other => (other, t);
+
+  ⟨this, by simp only [this, effects.property]; simp [Vector.mapFinIdx']⟩
 
 /-- Advance one CPU cycle across many interconnected chips. That means
   we execute the entire leading contiguous sequence of simple I/O operations (`IOEffects.simpleIORead` and `.simpleIOWrite`) and computation
@@ -322,7 +344,7 @@ def advanceTick.resolveSimpleIOReads {n : ℕ} (chips : Vector MC4000 n) (simple
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
 def advanceTick {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
-         (states : States chips) : States chips :=
+         (states : EffectsVec chips Unit) : EffectsVec chips Unit :=
 
   sorry
 

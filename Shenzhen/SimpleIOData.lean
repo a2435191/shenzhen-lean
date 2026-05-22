@@ -80,6 +80,9 @@ instance : Coe SimpleIOData Integer :=
 @[inline] instance : DecidableLE SimpleIOData :=
   fun x y => if h : x.n ≤ y.n then .isTrue h else .isFalse h
 
+@[inline] instance : Max SimpleIOData :=
+  maxOfLe
+
 end SimpleIOData
 
 /-- Cast an `Integer` to `SimpleIOData` by clamping its value between `0` and `100`, inclusive. -/
