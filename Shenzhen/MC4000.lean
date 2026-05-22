@@ -284,5 +284,51 @@ def advanceIP {m} (flags : Vector ConditionalFlag m) : StateM (InstructionState 
     modify <| InstructionState.setIP ip'
     return true
 
-/-- Advance one CPU cycle. -/
-def tick : sorry := sorry
+section
+
+abbrev Conns (nChips : ℕ) (connType : Type) :=
+  (Fin nChips × connType) → (Fin nChips × connType) → Bool
+
+def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : List (Fin n × Fin m) :=
+  (List.finRange n).product (List.finRange m)|>.filter (conns (i, j))
+
+abbrev States {n : ℕ} (chips : Vector MC4000 n) :=
+  { states : Vector ((m : ℕ) × Effects m Unit) n // ∀ (i : Fin n), chips[i].m = states[i].1 }
+
+def States.map {chips : Vector MC4000 n} (f : {m : ℕ} → Effects m Unit → Effects m Unit) : States chips → States chips
+| ⟨val, h⟩ => ⟨val.map fun ⟨m, fx⟩ => ⟨m, f fx⟩, by simp only [h]; simp⟩
+
+-- def States.mapFinIdx
+
+/-- Resolve all `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields. -/
+def tick.resolveSimpleIOReads {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO)
+                              (states : States chips) : States chips :=
+
+  let states' : Vector ((m : ℕ) × Effects m Unit) n :=
+    states.val.mapFinIdx' fun i ⟨m, fx⟩ =>
+      sorry
+  sorry
+
+/-- Advance one CPU cycle across many interconnected chips. That means
+  we execute the entire leading contiguous sequence of simple I/O operations (`IOEffects.simpleIORead` and `.simpleIOWrite`) and computation
+  (`.pure`) and then stop, or try to resolve exactly one XBus I/O operation (`.xBusRead`, `.xBusWrite`, and `.xBusPoll`).
+  We don't do anything for `.sleep` until trying to advance the encompassing *time unit*.
+
+  A simple I/O read will use the previous `TickState`; it does not see new data from connected chips writing
+  in the same tick. (TODO confirm this)
+
+  The effect of running this function `n` times for large `n` should be to get all chips
+  stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
+  the next (i.e. `.pure`), or sleeping for a time. -/
+def tick {n : ℕ} (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
+         (states : States chips) : States chips :=
+
+  sorry
+
+
+/-- Advance one time unit across many interconnected chips. This can only happen
+  if every chip is in the `IOEffects.sleep` state (or empty, with no instructions TODO check this).
+   -/
+def advanceTimeUnit : sorry := sorry
+
+end
