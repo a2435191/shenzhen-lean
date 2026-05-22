@@ -299,8 +299,7 @@ abbrev Effects.WithTickState (m : ℕ) (α : Type) :=
 -- TODO think about if `effects` should be `Vector ((m : ℕ) × Effects.WithTickState m Unit) n` instead and what that would entail
 /-- Resolve all `IOEffects.simpleIOWrite`s by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
 def resolveSimpleIOWrites {n : ℕ} (effects : Vector ((m : ℕ) × Effects m Unit) n)
-    (tickStates : Vector TickState n)
-    : Vector ((m : ℕ) × Effects.WithTickState m Unit) n :=
+    : Vector ((m : ℕ) × (Effects.WithTickState m Unit)) n :=
   effects.map fun ⟨m, e⟩ => Sigma.mk m fun t s =>
     match e s with
     | .simpleIOWrite pin d next => (next (), t.setSimpleIOOut pin d)
