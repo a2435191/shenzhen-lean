@@ -313,7 +313,7 @@ def resolveSimpleIOWrites {n : ℕ} (chips : Vector MC4000 n) (effects : Effects
       match e s with
       | .simpleIOWrite pin d next => (next (), t.setSimpleIOOut pin d)
       | other => (other, t)
-  ⟨this, by simp only [this, effects.property]; simp [Vector.mapFinIdx']⟩
+  ⟨this, by simp only [this, effects.property]; simp⟩
 
 /-- Resolve all `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
   to zero wherever a read occurs. -/
@@ -330,7 +330,7 @@ def resolveSimpleIOReads {n : ℕ} (simpleIOConns : Conns n SimpleIO) (chips : V
         (next max, t.clearSimpleIOOut pin)
       | other => (other, t);
 
-  ⟨this, by simp only [this, effects.property]; simp [Vector.mapFinIdx']⟩
+  ⟨this, by simp only [this, effects.property]; simp⟩
 
 /-- Advance one CPU cycle across many interconnected chips. That means
   we execute the entire leading contiguous sequence of simple I/O operations (`IOEffects.simpleIORead` and `.simpleIOWrite`) and computation
