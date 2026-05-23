@@ -73,7 +73,7 @@ deriving Repr
 structure TickState where
 /-- The values being written out of each simple I/O pin. Reading
     from a pin sets this value to 0 (but the read value is just the max of all the other writers on this wire).
-    See `effects`.
+    See `resolveTopLevelSimpleIO...` below.
 
     This may change from one CPU cycle to another within an instruction.
     For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
@@ -293,12 +293,13 @@ abbrev Conns (nChips : ℕ) (connType : Type) :=
 def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : List (Fin n × Fin m) :=
   (List.finRange n).product (List.finRange m)|>.filter (conns (i, j))
 
+-- TODO find a better name for this
 structure State where
   m : ℕ
   instructionState : IOEffects XBus SimpleIO (InstructionState m)
   tickState : TickState
 
-/-- Resolve all top-level (outermost) `IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
+/-- Resolve all top-level `IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
   by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
 def resolveTopLevelSimpleIOWrites {n : ℕ} (states : Vector State n) : Vector State n :=
   states.map fun s@⟨m, is, ts⟩ =>
