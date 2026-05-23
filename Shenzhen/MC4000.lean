@@ -293,9 +293,6 @@ abbrev Conns (nChips : ℕ) (connType : Type) :=
 def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : List (Fin n × Fin m) :=
   (List.finRange n).product (List.finRange m)|>.filter (conns (i, j))
 
-abbrev Effects.WithTickState (m : ℕ) (α : Type) :=
-  TickState → InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m) × TickState
-
 structure State where
   m : ℕ
   instructionState : IOEffects XBus SimpleIO (InstructionState m)
