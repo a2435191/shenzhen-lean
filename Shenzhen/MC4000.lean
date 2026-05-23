@@ -323,6 +323,42 @@ def resolveSimpleIOReads {n : ℕ}
       ⟨m, next max, ts.clearSimpleIOOut pin⟩
     | _ => s
 
+/-- Try to resolve top-level `IOEffects.xBusRead`s, `.xBusWrite`s, and `.xBusPoll`s.
+  A read and a write resolve each other, and a write resolves a poll (but the write remains unchanged, since `xBusPoll` doesn't consume).
+  With which other effect a given effect is resolved is unspecified behavior (TODO, make this
+  consistent with the game since some advanced techniques rely on it) -/
+def resolveXBus {n : ℕ} (xBusConns : Conns n XBus) (states : Vector State n) : Vector State n := Id.run do
+  let mut states := states
+  let mut visited := Vector.replicate n false
+
+  -- Iterate over writes, looking for connected polls and reads at indices we haven't visited yet
+  for i in List.finRange n do
+    if visited[i] then continue
+    let .xBusWrite pin d next := states[i].instructionState | continue
+
+    for j in List.finRange n do
+      if visited[j] then continue
+      match states[j].instructionState with
+      | .xBusRead pin' next' =>
+        if !xBusConns (i, pin) (j, pin') then continue -- we must be connected
+
+        -- Resolve our write with this read, and vice versa
+        visited := (visited.set i true).set j true -- visited[i] = visited[j] = true
+        -- don't actually change m, but it's not clear to the compiler that the old m and the new m are the same
+        states := states.set i { states[i] with m := _, instructionState := next () }
+        states := states.set j { states[j] with m := _, instructionState := next' d }
+        break
+      | .xBusPoll pin' next' =>
+        if !xBusConns (i, pin) (j, pin') then continue
+
+        -- Resolve this poll with our write (don't update our write though)
+        visited := (visited.set i true).set j true
+        states := states.set j { states[j] with m := _, instructionState := next' () }
+        break
+      | _ => continue
+
+  return states
+
 /-- Advance one CPU cycle across many interconnected chips. That means
   we execute the entire leading contiguous sequence of simple I/O operations (`IOEffects.simpleIORead` and `.simpleIOWrite`) and computation
   (`.pure`) and then stop, or try to resolve exactly one XBus I/O operation (`.xBusRead`, `.xBusWrite`, and `.xBusPoll`).

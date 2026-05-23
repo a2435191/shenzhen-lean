@@ -14,8 +14,9 @@ inductive IOEffects (ξ : Type u) (ι : Type v) (α : Type x)
 /-- `d` is some data to be thereafter written out of `outPin`, and `next ()` is returned after the write. -/
 | xBusWrite (outPin : ξ) (d : Integer) (next : Unit → IOEffects ξ ι α)
 /-- `xBusPoll pin next` represents a computation delayed until the value
-  from XBus pin `pin` arrives; then `next ()` is the result thereafter.
-  This is used to implement the `slx` operation. -/
+  from XBus pin `pin` arrives (but without consuming the value);
+  then `next ()` is the result thereafter.
+  This is used to implement the `slx` instruction. -/
 | xBusPoll (pin : ξ) (next : Unit → IOEffects ξ ι α)
 | simpleIORead (pin : ι) (next : SimpleIOData → IOEffects ξ ι α)
 | simpleIOWrite (outPin : ι) (d : SimpleIOData) (next : Unit → IOEffects ξ ι α)
