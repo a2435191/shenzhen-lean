@@ -299,68 +299,29 @@ structure State where
   instructionState : IOEffects XBus SimpleIO (InstructionState m)
   tickState : TickState
 
-/-- Resolve all top-level `IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
-  by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
-def resolveTopLevelSimpleIOWrites {n : ℕ} (states : Vector State n) : Vector State n :=
-  states.map fun s@⟨m, is, ts⟩ =>
-    match is with
-    | .simpleIOWrite pin d next => ⟨m, next (), ts.setSimpleIOOut pin d⟩
-    | _ => s
+/-! ## XBus semantics
+  I believe that when a chip executes an XBus read or write, the XBus pin sets a flag to
+  indicate to all connected pins that it is waiting to read/write (or neither, but I don't think both? TODO).
 
-/-- Resolve all top-level `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
-  to zero wherever a read occurs. -/
-def resolveTopLevelSimpleIOReads {n : ℕ}
-    (simpleIOConns : Conns n SimpleIO) (states : Vector State n) : Vector State n :=
-  states.mapFinIdx' fun i s@⟨m, is, ts⟩ =>
-    match is with
-    | .simpleIORead pin next =>
-      let max := simpleIOConns.neighbors i pin
-        |>.map (fun (i', pin') => states[i'].tickState.simpleIOOut[pin'])
-        |>.max?
-        |>.getD 0
-      ⟨m, next max, ts.clearSimpleIOOut pin⟩
-    | _ => s
+  A chip with its writing flag set on some XBus pin checks for a connected pin with its reading flag set
+  and, if one exists, resolves the write (clearing the flags, advancing both chip states to the next
+  part of the instruction or the next instruction). Similarly for reads
 
-/-- Try to resolve top-level `IOEffects.xBusRead`s, `.xBusWrite`s, and `.xBusPoll`s.
-  A read and a write resolve each other, and a write resolves a poll (but the write remains unchanged, since `xBusPoll` doesn't consume).
-  With which other effect a given effect is resolved is unspecified behavior (TODO, make this
-  consistent with the game since some advanced techniques rely on it) -/
-def resolveTopLevelXBus {n : ℕ} (xBusConns : Conns n XBus) (states : Vector State n) : Vector State n := Id.run do
-  let mut states := states
-  let mut visited := Vector.replicate n false
+  I notice there is an asymmetry between reads and writes, in that writes seem to take an extra tick to resolve.
+  I don't think this is ad-hoc behavior but rather a consequence of the order of flag sets and checks. I think the
+  order is `tick start` < `set own waiting-for-write flag` < `check flags` < `set own waiting-for-read flag` < `tick end`.
+  This allows reads to resolve within one tick but makes writes take at least two ticks (?, TODO)
 
-  -- Iterate over writes, looking for connected polls and reads at indices we haven't visited yet
-  for i in List.finRange n do
-    if visited[i] then continue
-    let .xBusWrite pin d next := states[i].instructionState | continue
+  Equivalently (I think TODO),
+    `tick start` < `any chip reading XBus resolves with connected pins that have set waiting-for-read flag previously`
+                 < `any chip writing XBus sets its own waiting-for-read flag`
+                 < `tick end`.
+-/
 
-    for j in List.finRange n do
-      if visited[j] then continue
-      match states[j].instructionState with
-      | .xBusRead pin' next' =>
-        if !xBusConns (i, pin) (j, pin') then continue -- we must be connected
+-- TODO how does this relate to e.g. `mov x0 x1`, `mov x0 p0`, `add x0`, `mov p0 x0`, etc.
+-- TODO how does this relate to the exec, read, sleep, write, etc. states displayed on MC4000 chips?
 
-        -- Resolve our write with this read, and vice versa
-        visited := (visited.set i true).set j true -- visited[i] = visited[j] = true
-        -- don't actually change m, but it's not clear to the compiler that the old m and the new m are the same
-        states := states.set i { states[i] with m := _, instructionState := next () }
-        states := states.set j { states[j] with m := _, instructionState := next' d }
-        break
-      | .xBusPoll pin' next' =>
-        if !xBusConns (i, pin) (j, pin') then continue
-
-        -- Resolve this poll with our write (don't update our write though)
-        visited := (visited.set i true).set j true
-        states := states.set j { states[j] with m := _, instructionState := next' () }
-        break
-      | _ => continue
-
-  return states
-
-/-- Advance one CPU cycle across many interconnected chips. That means
-  we execute the entire leading contiguous sequence of simple I/O operations (`IOEffects.simpleIORead` and `.simpleIOWrite`) and computation
-  (`.pure`) and then stop, or try to resolve exactly one XBus I/O operation (`.xBusRead`, `.xBusWrite`, and `.xBusPoll`).
-  We don't do anything for `.sleep` until trying to advance the encompassing *time unit*.
+/-- Advance one CPU cycle across many interconnected chips.
 
   A simple I/O read will use the previous `TickState`; it does not see new data from connected chips writing
   in the same tick. (TODO confirm this)
@@ -374,6 +335,8 @@ def advanceTick {n : ℕ}
     : Vector State n :=
   sorry
 
+-- TODO somewhere enforce "cannot read pin twice"
+-- TODO test edge case behavior for e.g. `mov x0 x0` or `mov p0 p0`
 
 /-- Advance one time unit across many interconnected chips. This can only happen
   if every chip is in the `IOEffects.sleep` state (or empty, with no instructions TODO check this).
