@@ -296,31 +296,32 @@ def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : Li
 abbrev Effects.WithTickState (m : ℕ) (α : Type) :=
   TickState → InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m) × TickState
 
--- TODO think about if `effects` should be `Vector ((m : ℕ) × Effects.WithTickState m Unit) n` instead and what that would entail
-/-- Resolve all `IOEffects.simpleIOWrite`s by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
-def resolveSimpleIOWrites {n : ℕ} (effects : Vector ((m : ℕ) × Effects m Unit) n)
-    : Vector ((m : ℕ) × (Effects.WithTickState m Unit)) n :=
-  effects.map fun ⟨m, e⟩ => Sigma.mk m fun t s =>
-    match e s with
-    | .simpleIOWrite pin d next => (next (), t.setSimpleIOOut pin d)
-    | other => (other, t)
+structure State where
+  m : ℕ
+  instructionState : IOEffects XBus SimpleIO (InstructionState m)
+  tickState : TickState
 
-/-- Resolve all `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
+/-- Resolve all top-level `IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
+  by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
+def resolveSimpleIOWrites {n : ℕ} (states : Vector State n) : Vector State n :=
+  states.map fun s@⟨m, is, ts⟩ =>
+    match is with
+    | .simpleIOWrite pin d next => ⟨m, next (), ts.setSimpleIOOut pin d⟩
+    | _ => s
+
+/-- Resolve all top-level `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
   to zero wherever a read occurs. -/
 def resolveSimpleIOReads {n : ℕ}
-    (simpleIOConns : Conns n SimpleIO) (effects : Vector ((m : ℕ) × Effects m Unit) n)
-    : Vector ((m : ℕ) × Effects.WithTickState m Unit) n :=
-  effects.mapFinIdx' fun i ⟨m, e⟩ => Sigma.mk m fun t s =>
-    match e s with
+    (simpleIOConns : Conns n SimpleIO) (states : Vector State n) : Vector State n :=
+  states.mapFinIdx' fun i s@⟨m, is, ts⟩ =>
+    match is with
     | .simpleIORead pin next =>
-      let max : SimpleIOData := simpleIOConns.neighbors i pin
-        |>.map (fun (i', pin') => t.simpleIOOut[pin'])
+      let max := simpleIOConns.neighbors i pin
+        |>.map (fun (i', pin') => states[i'].tickState.simpleIOOut[pin'])
         |>.max?
         |>.getD 0
-      (next max, t.clearSimpleIOOut pin)
-    | other => (other, t)
-
--- def resolveXBus {n : ℕ} (xBusConns : Conns n XBus) (effects : )
+      ⟨m, next max, ts.clearSimpleIOOut pin⟩
+    | _ => s
 
 /-- Advance one CPU cycle across many interconnected chips. That means
   we execute the entire leading contiguous sequence of simple I/O operations (`IOEffects.simpleIORead` and `.simpleIOWrite`) and computation
@@ -335,7 +336,8 @@ def resolveSimpleIOReads {n : ℕ}
   the next (i.e. `.pure`), or sleeping for a time. -/
 def advanceTick {n : ℕ}
     (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
-    (effects : Vector ((m : ℕ) × Effects m Unit) n) : Vector ((m : ℕ) × Effects m Unit) n :=
+    (states : Vector State n)
+    : Vector State n :=
   sorry
 
 
