@@ -190,158 +190,126 @@ end mk'
 
 namespace State
 
-@[reducible]
-def Effects (m : Nat) : Type → Type :=
-  StateT (InstructionState m) <| IOEffects XBus SimpleIO
+-- Here we need data-dependent effects so that I can make an `IOEffects.sleep` or `IOEffects.pure`
+-- depending on the result of reading `ri`, for example. (I think this is true)
+abbrev Effects (m : Nat) (α : Type) : Type :=
+  IOEffects XBus SimpleIO (InstructionState m → InstructionState m × α)
 
-/-- Return an `IOEffects` within the greater monad -/
-def ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
-  fun is => bfx <&> (·, is)
+def modify {m} (x : Effects m α) (f : α → InstructionState m → InstructionState m) : Effects m Unit :=
+  show IOEffects .. from
+  x <&> fun g s =>
+    let (s', x) := g s
+    (f x s', ())
 
 /-- Calculate the effect of a single instruction, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks, i.e. `TickState`). Does not
   update the instruction pointer at all. -/
 def instructionEffects {m} (instr : Instruction m) : Effects m Unit := do
   match instr with
-  -- Basic
-  | .nop => return
-  | .mov src dst =>
-    let d ← readRegOrInt src
-    match dst with
-    | .null => return
-    | .internal .acc => modify ({· with acc := d})
-    | .simpleIO i =>
-      let d := d.toSimpleIOData
-      ret (.simpleIOWrite i d pure)
-    | .xBus x => ret (.xBusWrite x d pure)
-  | .jmp _ => return -- the jump is taken care of elsewhere
-  | .slp ri =>
-    let d ← readRegOrInt ri
-    match d.clampToNat with
-    | 0 => return
-    | k + 1 => ret <| .sleep (k + 1) (Nat.succ_ne_zero _) pure
-  | .slx r => ret (.xBusPoll r pure)
-  -- Arithmetic
-  | .add ri => doArith ri (· + ·)
-  | .sub ri => doArith ri (· - ·)
-  | .mul ri => doArith ri (· * ·)
-  | .not => modify (.modifyAcc Integer.not)
-  | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
-  | .dst ri₁ ri₂ =>
-    -- set the `ri₁`th digit of `acc` to `ri₂`
-    let digit ← readRegOrInt ri₁
-    let num ← readRegOrInt ri₂
-    modify (.modifyAcc (Integer.setDigit · digit num))
-  -- Test (comparison)
-  | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
-  | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
-  | .tlt ri₁ ri₂ => doCmp ri₁ ri₂ (· < ·)
-  | .tcp ri₁ ri₂ =>
-    let d₁ ← readRegOrInt ri₁
-    let d₂ ← readRegOrInt ri₂
-    modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
-where
-  readRegOrInt (ri : RegOrInt) : Effects m Integer := do
-    match ri with
-    | .int n => return n
-    | .null => return 0
-    | .internal .acc => return (←get).acc
-    | .xBus x => do ret (.xBusRead x pure)
-    | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
+  | .add ri =>
+    let d : Effects m Integer := match ri with
+      | .int n => .pure (·, n)
+      | .null => .pure (·, 0)
+      | .internal .acc => .pure fun s => (s, s.acc)
+      | .xBus x => .xBusRead x fun d => .pure (·, d)
+      | .simpleIO i => .simpleIORead i fun d => .pure (·, d.toInteger)
+    modify d fun d => InstructionState.modifyAcc (· + d)
+  | _ => .pure (·, ())
 
-  doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : Effects m Unit := do
-    let d ← readRegOrInt ri
-    modify (.modifyAcc' f d)
+set_option linter.unusedVariables false in
+#eval!
+  match instructionEffects (m := 4) (.add (.xBus 1)) with
+  | .pure a => repr <| a ⟨999, ⟨#v[false, false, false, false], true, false⟩, .null⟩
+  | .xBusRead x next => s!".xBusRead {x} {next 3}"
+  | .xBusWrite x d next => ".xBusWrite"
+  | .xBusPoll x next => ".xBusPoll"
+  | .simpleIORead i next => ".simpleIORead"
+  | .simpleIOWrite i d next => ".simpleIOWrite"
+  | .sleep n hn next => ".sleep"
+-- /-- Find the index `i` of the next instruction at or after `start` that
+--   is enabled according to `flags[i]` and `cond`, looping back around from
+--   `i = m - 1` to `i = 0` if necessary. `none` if no such index exists.
+--   (We skip the `IP` constructor because it would always be a `Fin m`,
+--   as `m ≠ 0` by the existence of `start`.) -/
+-- def nextIP {m} (flags : Vector ConditionalFlag m)
+--     (start : Fin m) (cond : ConditionalState m) : Option (Fin m) :=
+--   let foundOffset := Fin.find? fun offset =>
+--     let i := offset + start
+--     match flags[i] with
+--     | .none => true
+--     | .pos => cond.posEnabled
+--     | .neg => cond.negEnabled
+--     | .once => !cond.hasRun[i]
+--   foundOffset <&> (· + start)
 
-  doCmp ri₁ ri₂ f := do
-    let d₁ ← readRegOrInt ri₁
-    let d₂ ← readRegOrInt ri₂
-    modify (.setCondIff (f d₁ d₂))
+-- /-- Advance the IP inside `StateM` to the location of the next currently enabled instruction.
+--   If impossible, stays on the current IP. Returns success (inside `StateM`). -/
+-- def advanceIP {m} (flags : Vector ConditionalFlag m) : StateM (InstructionState m) Bool := do
+--   let state ← get
+--   let .ofFin ip := state.ip | return false
+--   let next := nextIP flags ip state.cond
+--   match next with
+--   | none => return false
+--   | some ip' =>
+--     modify <| InstructionState.setIP ip'
+--     return true
 
-/-- Find the index `i` of the next instruction at or after `start` that
-  is enabled according to `flags[i]` and `cond`, looping back around from
-  `i = m - 1` to `i = 0` if necessary. `none` if no such index exists.
-  (We skip the `IP` constructor because it would always be a `Fin m`,
-  as `m ≠ 0` by the existence of `start`.) -/
-def nextIP {m} (flags : Vector ConditionalFlag m)
-    (start : Fin m) (cond : ConditionalState m) : Option (Fin m) :=
-  let foundOffset := Fin.find? fun offset =>
-    let i := offset + start
-    match flags[i] with
-    | .none => true
-    | .pos => cond.posEnabled
-    | .neg => cond.negEnabled
-    | .once => !cond.hasRun[i]
-  foundOffset <&> (· + start)
+-- -- section
 
-/-- Advance the IP inside `StateM` to the location of the next currently enabled instruction.
-  If impossible, stays on the current IP. Returns success (inside `StateM`). -/
-def advanceIP {m} (flags : Vector ConditionalFlag m) : StateM (InstructionState m) Bool := do
-  let state ← get
-  let .ofFin ip := state.ip | return false
-  let next := nextIP flags ip state.cond
-  match next with
-  | none => return false
-  | some ip' =>
-    modify <| InstructionState.setIP ip'
-    return true
+-- -- abbrev Conns (nChips : ℕ) (connType : Type) :=
+-- --   (Fin nChips × connType) → (Fin nChips × connType) → Bool
 
-section
+-- -- def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : List (Fin n × Fin m) :=
+-- --   (List.finRange n).product (List.finRange m)|>.filter (conns (i, j))
 
-abbrev Conns (nChips : ℕ) (connType : Type) :=
-  (Fin nChips × connType) → (Fin nChips × connType) → Bool
+-- -- abbrev Effects.WithTickState (m : ℕ) (α : Type) :=
+-- --   TickState → InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m) × TickState
 
-def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : List (Fin n × Fin m) :=
-  (List.finRange n).product (List.finRange m)|>.filter (conns (i, j))
+-- -- -- TODO think about if `effects` should be `Vector ((m : ℕ) × Effects.WithTickState m Unit) n` instead and what that would entail
+-- -- /-- Resolve all `IOEffects.simpleIOWrite`s by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
+-- -- def resolveSimpleIOWrites {n : ℕ} (effects : Vector ((m : ℕ) × Effects m Unit) n)
+-- --     : Vector ((m : ℕ) × (Effects.WithTickState m Unit)) n :=
+-- --   effects.map fun ⟨m, e⟩ => Sigma.mk m fun t s =>
+-- --     match e s with
+-- --     | .simpleIOWrite pin d next => (next (), t.setSimpleIOOut pin d)
+-- --     | other => (other, t)
 
-abbrev Effects.WithTickState (m : ℕ) (α : Type) :=
-  TickState → InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m) × TickState
+-- -- /-- Resolve all `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
+-- --   to zero wherever a read occurs. -/
+-- -- def resolveSimpleIOReads {n : ℕ}
+-- --     (simpleIOConns : Conns n SimpleIO) (effects : Vector ((m : ℕ) × Effects m Unit) n)
+-- --     : Vector ((m : ℕ) × Effects.WithTickState m Unit) n :=
+-- --   effects.mapFinIdx' fun i ⟨m, e⟩ => Sigma.mk m fun t s =>
+-- --     match e s with
+-- --     | .simpleIORead pin next =>
+-- --       let max : SimpleIOData := simpleIOConns.neighbors i pin
+-- --         |>.map (fun (i', pin') => t.simpleIOOut[pin'])
+-- --         |>.max?
+-- --         |>.getD 0
+-- --       (next max, t.clearSimpleIOOut pin)
+-- --     | other => (other, t)
 
--- TODO think about if `effects` should be `Vector ((m : ℕ) × Effects.WithTickState m Unit) n` instead and what that would entail
-/-- Resolve all `IOEffects.simpleIOWrite`s by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
-def resolveSimpleIOWrites {n : ℕ} (effects : Vector ((m : ℕ) × Effects m Unit) n)
-    : Vector ((m : ℕ) × (Effects.WithTickState m Unit)) n :=
-  effects.map fun ⟨m, e⟩ => Sigma.mk m fun t s =>
-    match e s with
-    | .simpleIOWrite pin d next => (next (), t.setSimpleIOOut pin d)
-    | other => (other, t)
+-- -- -- def resolveXBus {n : ℕ} (xBusConns : Conns n XBus) (effects : )
 
-/-- Resolve all `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
-  to zero wherever a read occurs. -/
-def resolveSimpleIOReads {n : ℕ}
-    (simpleIOConns : Conns n SimpleIO) (effects : Vector ((m : ℕ) × Effects m Unit) n)
-    : Vector ((m : ℕ) × Effects.WithTickState m Unit) n :=
-  effects.mapFinIdx' fun i ⟨m, e⟩ => Sigma.mk m fun t s =>
-    match e s with
-    | .simpleIORead pin next =>
-      let max : SimpleIOData := simpleIOConns.neighbors i pin
-        |>.map (fun (i', pin') => t.simpleIOOut[pin'])
-        |>.max?
-        |>.getD 0
-      (next max, t.clearSimpleIOOut pin)
-    | other => (other, t)
+-- -- /-- Advance one CPU cycle across many interconnected chips. That means
+-- --   we execute the entire leading contiguous sequence of simple I/O operations (`IOEffects.simpleIORead` and `.simpleIOWrite`) and computation
+-- --   (`.pure`) and then stop, or try to resolve exactly one XBus I/O operation (`.xBusRead`, `.xBusWrite`, and `.xBusPoll`).
+-- --   We don't do anything for `.sleep` until trying to advance the encompassing *time unit*.
 
--- def resolveXBus {n : ℕ} (xBusConns : Conns n XBus) (effects : )
+-- --   A simple I/O read will use the previous `TickState`; it does not see new data from connected chips writing
+-- --   in the same tick. (TODO confirm this)
 
-/-- Advance one CPU cycle across many interconnected chips. That means
-  we execute the entire leading contiguous sequence of simple I/O operations (`IOEffects.simpleIORead` and `.simpleIOWrite`) and computation
-  (`.pure`) and then stop, or try to resolve exactly one XBus I/O operation (`.xBusRead`, `.xBusWrite`, and `.xBusPoll`).
-  We don't do anything for `.sleep` until trying to advance the encompassing *time unit*.
-
-  A simple I/O read will use the previous `TickState`; it does not see new data from connected chips writing
-  in the same tick. (TODO confirm this)
-
-  The effect of running this function `n` times for large `n` should be to get all chips
-  stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
-  the next (i.e. `.pure`), or sleeping for a time. -/
-def advanceTick {n : ℕ}
-    (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
-    (effects : Vector ((m : ℕ) × Effects m Unit) n) : Vector ((m : ℕ) × Effects m Unit) n :=
-  sorry
+-- --   The effect of running this function `n` times for large `n` should be to get all chips
+-- --   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
+-- --   the next (i.e. `.pure`), or sleeping for a time. -/
+-- -- def advanceTick {n : ℕ}
+-- --     (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
+-- --     (effects : Vector ((m : ℕ) × Effects m Unit) n) : Vector ((m : ℕ) × Effects m Unit) n :=
+-- --   sorry
 
 
-/-- Advance one time unit across many interconnected chips. This can only happen
-  if every chip is in the `IOEffects.sleep` state (or empty, with no instructions TODO check this).
-   -/
-def advanceTimeUnit : sorry := sorry
+-- -- /-- Advance one time unit across many interconnected chips. This can only happen
+-- --   if every chip is in the `IOEffects.sleep` state (or empty, with no instructions TODO check this).
+-- --    -/
+-- -- def advanceTimeUnit : sorry := sorry
 
-end
+-- -- end

@@ -5,47 +5,75 @@ import Shenzhen.SimpleIOData
   We also record reads and writes from simple I/O pins, although they don't block.
   - `ξ` is the type of *X*Bus pins.
   - `ι` is the type of simple *I*/O pins.-/
-inductive IOEffects (ξ : Type u) (ι : Type v) (α : Type x)
+inductive IOEffects (ξ : Type u) (ι : Type v) : (α : Type x) → Type _
 /-- Just return a value immediately, without doing any effects. -/
-| pure (a : α)
+| pure : α → IOEffects _ _ α
 /-- `xBusRead pin next` represents a computation delayed until a value `d`
   from `pin` can be read; then `next d` is the result of the computation. -/
-| xBusRead (pin : ξ) (next : Integer → IOEffects ξ ι α)
+| xBusRead (pin : ξ) (next : IOEffects ξ ι (Integer → α)) : IOEffects _ _ α
 /-- `d` is some data to be thereafter written out of `outPin`, and `next ()` is returned after the write. -/
-| xBusWrite (outPin : ξ) (d : Integer) (next : Unit → IOEffects ξ ι α)
+| xBusWrite (outPin : ξ) (d : Integer) (next : IOEffects ξ ι α) : IOEffects _ _ α
 /-- `xBusPoll pin next` represents a computation delayed until the value
   from XBus pin `pin` arrives; then `next ()` is the result thereafter.
   This is used to implement the `slx` operation. -/
-| xBusPoll (pin : ξ) (next : Unit → IOEffects ξ ι α)
-| simpleIORead (pin : ι) (next : SimpleIOData → IOEffects ξ ι α)
-| simpleIOWrite (outPin : ι) (d : SimpleIOData) (next : Unit → IOEffects ξ ι α)
+| xBusPoll (pin : ξ) (next : IOEffects ξ ι α) : IOEffects _ _ α
+| simpleIORead (pin : ι) (next : IOEffects ξ ι (SimpleIOData → α)) : IOEffects _ _ α
+| simpleIOWrite (outPin : ι) (d : SimpleIOData) (next : IOEffects ξ ι α) : IOEffects _ _ α
 /-- Wait for `n` time units. -/
-| sleep (n : Nat) (h : n ≠ 0) (next : Unit → IOEffects ξ ι α)
+| sleep (n : Nat) (h : n ≠ 0) (next : IOEffects ξ ι α) : IOEffects _ _ α
 
 namespace IOEffects
 
 instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
   ⟨pure default⟩
 
-
 instance : Pure (IOEffects ξ ι) where
-  pure := .pure
+  pure := pure
 
-/-- You really should not be using data-dependent effects, as none of the instructions require them.
-  But creating this `Monad` instance allows the use of `do` notation. -/
 @[simp]
-def bind (mx : IOEffects ξ ι α) (f : α → IOEffects ξ ι β) : IOEffects ξ ι β :=
-  match mx with
-  | pure a => f a
-  | .xBusRead p next => .xBusRead p fun d => bind (next d) f
-  | .simpleIORead p next => .simpleIORead p fun d => bind (next d) f
-  | .xBusWrite p d next => .xBusWrite p d fun () => bind (next ()) f
-  | .simpleIOWrite p d next => .simpleIOWrite p d fun () => bind (next ()) f
-  | xBusPoll p next => xBusPoll p fun () => bind (next ()) f
-  | .sleep n h next => .sleep n h fun () => bind (next ()) f
+def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
+  | .pure a => .pure (f a)
+  | .xBusRead pin next => .xBusRead pin (map (f ∘ ·) next)
+  | .xBusWrite pin d next => .xBusWrite pin d (map f next)
+  | .xBusPoll pin next => .xBusPoll pin (map f next)
+  | .simpleIORead pin next => .simpleIORead pin (map (f ∘ ·) next)
+  | .simpleIOWrite pin d next => .simpleIOWrite pin d (map f next)
+  | .sleep n h next => .sleep n h (map f next)
 
-instance : Monad (IOEffects ξ ι) where
-  bind := bind
+instance : Functor (IOEffects ξ ι) where
+  map := map
+
+-- Just needed for termination proof below
+@[simp]
+def size : IOEffects ξ ι α → Nat
+  | .pure _ => 1
+  | .xBusRead _ next | .xBusWrite _ _ next | .xBusPoll _ next
+  | .simpleIORead _ next | .simpleIOWrite _ _ next
+  | .sleep _ _ next => 1 + size next
+
+@[simp]
+theorem size_map {α} {x : IOEffects ξ ι α} {β} {f : α → β} : size (f <$> x) = size x := by
+  cases x
+  all_goals first | rfl | exact congrArg _ size_map
+
+@[simp]
+def _root_.Function.swap (f : α → β → γ) : β → α → γ :=
+  fun b a => f a b
+
+@[simp]
+def seq (mf : IOEffects ξ ι (α → β)) (mx : Unit → IOEffects ξ ι α) : IOEffects ξ ι β :=
+  match mf with
+  | .pure f => f <$> mx ()
+  | .xBusRead pin next => .xBusRead pin (seq (Function.swap <$> next) mx)
+  | .xBusWrite pin d next => .xBusWrite pin d (seq next mx)
+  | .xBusPoll pin next => .xBusPoll pin (seq next mx)
+  | .simpleIORead pin next => .simpleIORead pin (seq (Function.swap <$> next) mx)
+  | .simpleIOWrite pin d next => .simpleIOWrite pin d (seq next mx)
+  | .sleep n h next => .sleep n h (seq next mx)
+termination_by size mf
+
+instance : Applicative (IOEffects ξ ι) where
+  seq := seq
 
 section
 
@@ -57,36 +85,40 @@ theorem id_map (x : IOEffects ξ ι α) : id <$> x = x := by
   all_goals
     simp; rename_i ih; funext; apply ih
 
-theorem bind_pure_comp (f : α → β) (x : IOEffects ξ ι α) : x >>= (fun a => pure (f a)) = f <$> x := by
-  induction x
-  all_goals
-    simp <;> rename_i ih <;> funext <;> apply ih
+-- theorem seq_pure {α : Type u} {β : Type u} (g : IOEffects ξ ι (α → β)) (a : α) : g <*> Pure.pure a = (fun h => h a) <$> g := by
+--   cases g
+--   · simp
+--   · simp
+--     unfold Function.swap Function.comp
+--     simp
+--     sorry
+--   all_goals sorry
 
-instance : LawfulMonad (IOEffects ξ ι) where
-  map_const := rfl
-  id_map := id_map
-  seqLeft_eq x y := by
-    simp [SeqLeft.seqLeft]
-    induction x
-    all_goals
-      first | apply bind_pure_comp | rename_i ih; funext; simp [ih]
-  seqRight_eq x y := by
-    simp [SeqRight.seqRight]
-    induction x
-    all_goals
-      first | symm; apply id_map | rename_i ih; funext; simp [ih]
-  pure_seq f x := by simp [Seq.seq]
-  bind_pure_comp := bind_pure_comp
-  bind_map f x := by
-    induction f <;> simp <;> (rename_i ih; funext; apply ih)
-  pure_bind := by simp
-  bind_assoc x f g := by
-    induction x <;> simp <;> (rename_i ih; funext; apply ih)
+-- instance : LawfulApplicative (IOEffects ξ ι) where
+--   map_const := rfl
+--   id_map := id_map
+--   seqLeft_eq x y := rfl
+--   seqRight_eq x y := rfl
+--   pure_seq f x := by simp
+--   map_pure := by simp
+--   seq_pure := seq_pure
+--   seq_assoc x g h := by
+--     induction x
+--     · show _ <*> (_ <*> Pure.pure _) = _ <*> Pure.pure _
+--       simp only [seq_pure]
+
+--       sorry
+--     · sorry
+--     · sorry
+--     · sorry
+--     · sorry
+--     · sorry
+--     · sorry
 
 end
 
 def sleepOne : IOEffects ξ ι α → IOEffects ξ ι α
-| .sleep 1 _ next => next ()
+| .sleep 1 _ next => next
 | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
 | fx => fx
 
