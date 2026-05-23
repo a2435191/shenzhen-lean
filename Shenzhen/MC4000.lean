@@ -298,9 +298,9 @@ structure State where
   instructionState : IOEffects XBus SimpleIO (InstructionState m)
   tickState : TickState
 
-/-- Resolve all top-level `IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
+/-- Resolve all top-level (outermost) `IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
   by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs. -/
-def resolveSimpleIOWrites {n : ℕ} (states : Vector State n) : Vector State n :=
+def resolveTopLevelSimpleIOWrites {n : ℕ} (states : Vector State n) : Vector State n :=
   states.map fun s@⟨m, is, ts⟩ =>
     match is with
     | .simpleIOWrite pin d next => ⟨m, next (), ts.setSimpleIOOut pin d⟩
@@ -308,7 +308,7 @@ def resolveSimpleIOWrites {n : ℕ} (states : Vector State n) : Vector State n :
 
 /-- Resolve all top-level `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
   to zero wherever a read occurs. -/
-def resolveSimpleIOReads {n : ℕ}
+def resolveTopLevelSimpleIOReads {n : ℕ}
     (simpleIOConns : Conns n SimpleIO) (states : Vector State n) : Vector State n :=
   states.mapFinIdx' fun i s@⟨m, is, ts⟩ =>
     match is with
@@ -324,7 +324,7 @@ def resolveSimpleIOReads {n : ℕ}
   A read and a write resolve each other, and a write resolves a poll (but the write remains unchanged, since `xBusPoll` doesn't consume).
   With which other effect a given effect is resolved is unspecified behavior (TODO, make this
   consistent with the game since some advanced techniques rely on it) -/
-def resolveXBus {n : ℕ} (xBusConns : Conns n XBus) (states : Vector State n) : Vector State n := Id.run do
+def resolveTopLevelXBus {n : ℕ} (xBusConns : Conns n XBus) (states : Vector State n) : Vector State n := Id.run do
   let mut states := states
   let mut visited := Vector.replicate n false
 
