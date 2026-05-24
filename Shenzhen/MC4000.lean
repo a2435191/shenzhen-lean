@@ -362,11 +362,17 @@ where
       else none
 
 /-- Each chip writing XBus sets its own `waiting-to-write` flag. -/
-def setXBusWriteFlags {n : ℕ}
-    (states : Vector State n) : Vector State n :=
+def setXBusWriteFlags {n : ℕ} (states : Vector State n) : Vector State n :=
   states.map fun
     | s@{ instructionState := .xBusWrite pin .., .. } => s.setWaitingToWrite pin true
     | other => other
+
+/-- Mark everywhere we are `.sleep`ing or `.pure` as having ticked -/
+def setMaskForPureAndSleep {n} (states : Vector State n) (mask : Vector Bool n) : Vector Bool n :=
+  (states.zip mask).map fun (⟨_, is, _, _⟩, b) =>
+    match is with
+    | .sleep .. | .pure _ => false
+    | _ => b
 
 /-! ## What happens in a tick
   In a tick (CPU cycle), a chip does exactly one of the following:
@@ -413,6 +419,8 @@ where
   -- TODO show this terminates. I think it can be done with the count of `true` in `mask`
 
   step (states : Vector State n) (mask : Vector Bool n) : Vector State n × Vector Bool n :=
+    let mask := setMaskForPureAndSleep states mask
+
     let (states, mask) := resolveXBusReadsAndPeeks xBusConns states mask
 
     -- TODO
