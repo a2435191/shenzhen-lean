@@ -433,7 +433,7 @@ theorem resolveXBusReadsAndPeeks_count_le (xc s t) : (resolveXBusReadsAndPeeks x
   · intro (s, t') (h : t'.count false ≤ t.count false) i _
     unfold motive
     repeat' split
-    all_goals first | assumption | simp only [Vector.count_set]; grind
+    all_goals first | assumption | grind [Vector.count_set]
 
 /-! ## What happens in a tick
   In a tick (CPU cycle), a chip does exactly one of the following:
