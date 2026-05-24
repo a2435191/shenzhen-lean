@@ -131,8 +131,6 @@ structure MC4000 where
   instrs : Vector (Instruction m) m
 deriving Repr
 
-namespace MC4000
-
 section mk'
 variable (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat InternalReg XBus SimpleIO))
 
@@ -164,8 +162,6 @@ def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat Inter
     @MC4000.mk m ⟨flags, by simp [this]; rfl⟩ ⟨instrs', by simp [instrs', this]; rfl⟩
 
 end mk'
-
-namespace State
 
 @[reducible]
 def Effects (m : Nat) : Type → Type :=
@@ -270,7 +266,6 @@ abbrev Conns (nChips : ℕ) (connType : Type) :=
 def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : List (Fin n × Fin m) :=
   (List.finRange n).product (List.finRange m)|>.filter (conns (i, j))
 
--- TODO find a better name for this
 structure State where
   m : ℕ
   instructionState : IOEffects XBus SimpleIO (InstructionState m)
