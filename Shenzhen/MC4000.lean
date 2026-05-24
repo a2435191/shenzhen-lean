@@ -633,7 +633,7 @@ def mc₀ : MC4000 :=
 def mc₁ : MC4000 :=
   .mk (Vector.replicate _ .none)
     #v[
-      -- .nop,
+      .nop,
       .mov (.xBus 0) (.internal .acc),
       .slp (.int 1)]
 
@@ -646,7 +646,7 @@ def xBusConns : Conns 2 XBus :=
 def advance :=
   advanceTick #v[mc₀, mc₁] simpleIOConns xBusConns
 
-def states₀ : Vector State 2 := Vector.replicate _ (.blank 2)
+def states₀ : Vector State 2 := #v[.blank mc₀.m, .blank mc₁.m]
 def states₁ := advance states₀
 def states₂ := advance states₁
 def states₃ := advance states₂
