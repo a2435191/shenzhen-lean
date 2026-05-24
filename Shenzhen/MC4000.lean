@@ -65,24 +65,8 @@ deriving Repr
   Reading a value from a pin register will put the corresponding pin into input mode, clearing any
   previously set output value." (copied from the manual)
 
-  This is the only effect that can change the state of a chip mid-instruction. -/
+  This and XBus writes (see below) are the only effects that can change the state of a chip mid-instruction. -/
 
-/-- Represents all the data that can be mutated within an instruction, i.e. from tick to tick. Of course these mutations
-  may persist into the next tick(s).
-  (tick = CPU cycle, multiple of which happen in a single time unit) -/
-structure TickState where
-  /-- The values being written out of each simple I/O pin. Reading
-    from a pin sets this value to 0 (but the read value is just the max of all the other writers on this wire).
-    See `resolveTopLevelSimpleIO...` below.
-
-    This may change from one CPU cycle to another within an instruction.
-    For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
-    out of `p0` before this instruction. -/
-  simpleIOOut : Vector SimpleIOData numSimpleIOPins
-  -- TODO do I also need to keep track of a boolean flag for each simple I/O pin here?
-
-  -- See below
-  waitingToWrite : Vector Bool numXBusPins
 
 abbrev Instruction (numInstr : Nat) :=
   _root_.Instruction (Fin numInstr) InternalReg XBus SimpleIO
@@ -138,19 +122,6 @@ def modifyAcc' (f : Integer → Integer → Integer) (other : Integer) : Instruc
   fun state => { state with ip := f state.ip }
 
 end InstructionState
-
-namespace TickState
-
-@[inline] def setSimpleIOOut (i : SimpleIO) (val : SimpleIOData) : TickState → TickState :=
-  fun state => { state with simpleIOOut := Vector.set state.simpleIOOut i val }
-
-@[inline] def clearSimpleIOOut (i : SimpleIO) : TickState → TickState :=
-  setSimpleIOOut i 0
-
-@[inline] def setWaitingToWrite (i : XBus) (val : Bool) : TickState → TickState :=
-  fun state => { state with waitingToWrite := Vector.set state.waitingToWrite i val }
-
-end MC4000.TickState
 
 open MC4000 in
 structure MC4000 where
@@ -303,7 +274,34 @@ def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : Li
 structure State where
   m : ℕ
   instructionState : IOEffects XBus SimpleIO (InstructionState m)
-  tickState : TickState
+
+  -- now, the state that can be mutated between ticks inside an instruction
+
+  /-- The values being written out of each simple I/O pin. Reading
+    from a pin sets this value to 0 (but the read value is just the max of all the other writers on this wire).
+    See `resolveTopLevelSimpleIO...` below.
+
+    This may change from one CPU cycle to another within an instruction.
+    For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
+    out of `p0` before this instruction. -/
+  simpleIOOut : Vector SimpleIOData numSimpleIOPins
+  -- TODO do I also need to keep track of a boolean flag for each simple I/O pin here?
+
+  -- See below
+  waitingToWrite : Vector Bool numXBusPins
+
+namespace State
+
+@[inline] def setSimpleIOOut (i : SimpleIO) (val : SimpleIOData) : State → State :=
+  fun state => { state with simpleIOOut := Vector.set state.simpleIOOut i val }
+
+@[inline] def clearSimpleIOOut (i : SimpleIO) : State → State :=
+  setSimpleIOOut i 0
+
+@[inline] def setWaitingToWrite (i : XBus) (val : Bool) : State → State :=
+  fun state => { state with waitingToWrite := Vector.set state.waitingToWrite i val }
+
+end State
 
 /-! ## XBus semantics
   I believe that when a chip executes an XBus read or write, the XBus pin sets a flag to
@@ -361,8 +359,8 @@ where
     Fin.findSome? (n := n) fun j =>
       if mask[j] then
         match h : states[j] with
-        | ⟨m, .xBusWrite pin d next, tickState⟩ =>
-          if tickState.waitingToWrite[pin] && xBusConns whichPin (j, pin) then
+        | ⟨m, .xBusWrite pin d next, _, waitingToWrite⟩ =>
+          if waitingToWrite[pin] && xBusConns whichPin (j, pin) then
             some ⟨j, pin, d, cast (by simp [h]) next⟩
           else none
         | _ => none
@@ -372,8 +370,7 @@ where
 def setXBusWriteFlags {n : ℕ}
     (states : Vector State n) : Vector State n :=
   states.map fun
-    | s@⟨_, .xBusWrite pin _ _, tickState⟩ =>
-      { s with tickState := tickState.setWaitingToWrite pin true }
+    | s@{ instructionState := .xBusWrite pin .., .. } => s.setWaitingToWrite pin true
     | other => other
 
 /-! ## What happens in a tick
