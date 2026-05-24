@@ -409,6 +409,32 @@ def resolveSimpleIOReads {n : ℕ}
         ⟨m, next max, simpleIOOut.set pin 0, waitingToWrite⟩
       | _ => s
 
+theorem _root_.Vector.countP_map_le_countP
+    {v : Vector α n} {f : α → β} {p : α → Bool} {q : β → Bool}
+    (hf : ∀ a, q (f a) → p a) : (v.map f).countP q ≤ v.countP p := by
+  rw [Vector.countP_map]
+  apply Vector.countP_mono_left
+  intros; apply hf; assumption
+
+theorem setMaskForPureAndSleep_count_le (s t) : (setMaskForPureAndSleep s t (n := n)).count false ≤ t.count false :=
+  calc
+    _ ≤ (s.zip t).countP fun (_, b) => !b := Vector.countP_map_le_countP (by grind)
+    _ ≤ ((s.zip t).map Prod.snd).countP fun b => !b := by rw [Vector.countP_map]; apply Vector.countP_mono_left; simp
+    _ = (t.map fun b => !b).countP id := by simp [Vector.map_snd_zip]
+    _ ≤ _ := by rw [Vector.count_eq_countP]; apply Vector.countP_map_le_countP; simp
+
+theorem resolveXBusReadsAndPeeks_count_le (xc s t) : (resolveXBusReadsAndPeeks xc s t (n := n)).2.count false ≤ t.count false := by
+  simp only [resolveXBusReadsAndPeeks, Fin.getElem_fin]
+  let motive (x : Vector State n × Vector Bool n) : Prop :=
+    x.2.count false ≤ t.count false
+  show motive _
+  apply List.foldlRecOn
+  · exact Nat.le_of_eq rfl
+  · intro (s, t') (h : t'.count false ≤ t.count false) i _
+    unfold motive
+    repeat' split
+    all_goals first | assumption | simp only [Vector.count_set]; grind
+
 /-! ## What happens in a tick
   In a tick (CPU cycle), a chip does exactly one of the following:
   - Sleeps (as in `slp`, not `slx`). At the end of the tick, the instruction pointer only advances
@@ -440,7 +466,7 @@ def resolveSimpleIOReads {n : ℕ}
   The effect of running this function `n` times for large `n` should be to get all chips
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
-partial def advanceTick {n : ℕ}
+def advanceTick {n : ℕ}
     (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus) (states : Vector State n)
     : Vector State n :=
   go states (Vector.replicate n false)
@@ -450,10 +476,21 @@ where
     states.map State.simpleIOOut
 
   go (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n :=
-    let (states', alreadyTicked') := step states alreadyTicked
-    if alreadyTicked' == alreadyTicked then states
-    else go states' alreadyTicked' -- run until we don't make progress
-  -- TODO show this terminates. I think it can be done with the count of `false` in `alreadyTicked`
+    match _h: step states alreadyTicked with -- this instead of `let` for the decreasing proof
+    | (states', alreadyTicked') =>
+      -- TODO: this conditional is equivalent to alreadyTicked' == alreadyTicked, so prove it and simplify this expression
+      if alreadyTicked'.count false == alreadyTicked.count false then states
+      else go states' alreadyTicked' -- run until we don't make progress
+  termination_by alreadyTicked.count false
+  decreasing_by
+    rename_i originalStates h'
+    have : alreadyTicked' = (advanceTick.step simpleIOConns xBusConns originalStates states alreadyTicked).2 :=
+      by simp_all
+    subst alreadyTicked'
+    apply Nat.lt_of_le_of_ne ?_ (by grind)
+    calc
+      _ ≤ (setMaskForPureAndSleep states alreadyTicked).count false := resolveXBusReadsAndPeeks_count_le ..
+      _ ≤ _ := setMaskForPureAndSleep_count_le ..
 
   step (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
     let alreadyTicked := setMaskForPureAndSleep states alreadyTicked
