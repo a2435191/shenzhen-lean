@@ -486,6 +486,7 @@ def advanceTick {n : ℕ} (chips : Vector MC4000 n)
   -- TODO I think we can use `alreadyTicked` to diagnose programs that never sleep
 
   -- TODO think about having this happen in `instructionEffects`
+  -- Also TODO this will totally screw up `.jmp` instructions
   -- Now we advance the instruction pointer for any `.pure` states.
   states.mapFinIdx' fun i s@{ m, instructionState, .. } =>
     match instructionState with
