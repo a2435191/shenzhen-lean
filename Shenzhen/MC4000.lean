@@ -399,11 +399,26 @@ def setXBusWriteFlags {n : ℕ}
   The effect of running this function `n` times for large `n` should be to get all chips
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
-def advanceTick {n : ℕ}
+partial def advanceTick {n : ℕ}
     (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
     (states : Vector State n)
     : Vector State n :=
-  sorry
+  go states (Vector.replicate n true)
+  -- TODO I think we can use the bool vector to diagnose programs that never sleep
+where
+  go (states : Vector State n) (mask : Vector Bool n) : Vector State n :=
+    let (states', mask') := step states mask
+    if mask' == mask then states
+    else go states' mask' -- run until we don't make progress
+  -- TODO show this terminates. I think it can be done with the count of `true` in `mask`
+
+  step (states : Vector State n) (mask : Vector Bool n) : Vector State n × Vector Bool n :=
+    let (states, mask) := resolveXBusReadsAndPeeks xBusConns states mask
+
+    -- TODO
+
+    let states := setXBusWriteFlags states
+    (states, mask)
 
 -- TODO somewhere enforce "cannot read pin twice"
 -- TODO test edge case behavior for e.g. `mov x0 x0` or `mov p0 p0`
