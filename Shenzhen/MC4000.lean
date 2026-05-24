@@ -5,6 +5,13 @@ import Shenzhen.Util
 import Shenzhen.IOEffects
 import Shenzhen.Notation
 
+-- disable dbg_trace
+open Lean in
+@[macro Lean.Parser.Term.dbgTrace] def expandDbgTraceOverride : Macro
+  | `(dbg_trace $_arg:interpolatedStr; $body) => `($body)
+  | `(dbg_trace $_arg:term; $body)            => `($body)
+  | _                                         => Macro.throwUnsupported
+
 namespace MC4000
 
 @[reducible] def numXBusPins := 2
@@ -607,16 +614,16 @@ def states₀ : Vector State 2 := Vector.replicate _ (.blank 2)
 def states₁ := advance states₀
 def states₂ := advance states₁
 
--- #eval do
---   let ⟨m, fx, simpleIOOut, waitingToWrite⟩ := states₂[0]
---   println! m
---   println! repr simpleIOOut
---   println! repr waitingToWrite
+#eval do
+  let ⟨m, fx, simpleIOOut, waitingToWrite⟩ := states₂[0]
+  println! m
+  println! repr simpleIOOut
+  println! repr waitingToWrite
 
---   match fx with
---   | .pure p => println! p
---   | .xBusWrite pin d next => println! ".xBusWrite x{pin} {d} ⋯"
---   | _ => println! "hmmm"
+  match fx with
+  | .pure p => println! p
+  | .xBusWrite pin d next => println! ".xBusWrite x{pin} {d} ⋯"
+  | _ => println! "hmmm"
 
 
 #reduce states₂
