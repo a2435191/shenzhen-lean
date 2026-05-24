@@ -319,7 +319,28 @@ structure State where
                  < `tick end`.
 -/
 
--- TODO how does this relate to e.g. `mov x0 x1`, `mov x0 p0`, `add x0`, `mov p0 x0`, etc.
+/-! ## What happens in a tick
+  In a tick (CPU cycle), a chip does exactly one of the following:
+  - Sleeps (as in `slp`, not `slx`). At the end of the tick, the instruction pointer only advances
+    to the next instruction (advancing by one tick and time unit as well) if all other chips are also sleeping.
+  - Executes an initial, contiguous sequence of simple I/O, computation (like `add`), and/or *unblocked* XBus operations,
+    i.e. those for which connected pins have their flags set appropriately. Due to the (equivalent) orderings above,
+    this last item includes XBus reads and peeks (`slx`) for which there was a writer at the end of the previous tick.
+    It also includes XBus writes for which the `waiting-to-write` flag is set *and* there is a connected reader
+    at the start of the tick; note that this can never happen on the first tick an XBus write is executed.
+
+    This sequence continues until the end of the current instruction (in which case the instruction pointer is advanced)
+    or a blocked XBus operation or a sleep (as in the case of the `gen` hidden instruction). In particular,
+    `teq x0 x1` would take only one tick to execute as long as `x0` and `x1` each had a writer the *previous* tick (and
+    another reader did not resolve with them this tick).
+
+    (In particular, this means that further operations after a write could continue in the same tick,
+    although with the current instruction set this never happens in practice. But since `advanceTick`
+    accepts arbitrarily nested `IOState` constructors, we still have to handle it.)
+  - Waits on a blocked XBus operation.
+-/
+
+-- TODO how does this relate to e.g. `mov x0 x1`, `mov x0 p0`, `add x0`, `teq x0 x1`, `mov p0 x0`, etc.
 -- TODO how does this relate to the exec, read, sleep, write, etc. states displayed on MC4000 chips?
 
 /-- Advance one CPU cycle across many interconnected chips.
