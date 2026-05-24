@@ -309,12 +309,13 @@ structure State where
 
   I notice there is an asymmetry between reads and writes, in that writes seem to take an extra tick to resolve.
   I don't think this is ad-hoc behavior but rather a consequence of the order of flag sets and checks. I think the
-  order is `tick start` < `set own waiting-for-write flag` < `check flags` < `set own waiting-for-read flag` < `tick end`.
+  order is `tick start` < `set own waiting-to-read flag` < `check flags` < `set own waiting-to-write flag` < `tick end`.
   This allows reads to resolve within one tick but makes writes take at least two ticks (?, TODO)
 
-  Equivalently (I think TODO),
-    `tick start` < `any chip reading XBus resolves with connected pins that have set waiting-for-read flag previously`
-                 < `any chip writing XBus sets its own waiting-for-read flag`
+  Equivalently (I think TODO), the read flags don't need to be global variables if reads are solely
+  responsible for checking flags. So the ordering becomes
+    `tick start` < `each chip reading XBus resolves with a connected pin that has set its own waiting-to-write flag previously`
+                 < `each chip writing XBus sets its own waiting-to-write flag`
                  < `tick end`.
 -/
 
