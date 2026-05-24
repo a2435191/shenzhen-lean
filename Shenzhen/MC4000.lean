@@ -71,7 +71,7 @@ deriving Repr
   may persist into the next tick(s).
   (tick = CPU cycle, multiple of which happen in a single time unit) -/
 structure TickState where
-/-- The values being written out of each simple I/O pin. Reading
+  /-- The values being written out of each simple I/O pin. Reading
     from a pin sets this value to 0 (but the read value is just the max of all the other writers on this wire).
     See `resolveTopLevelSimpleIO...` below.
 
@@ -79,7 +79,10 @@ structure TickState where
     For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
     out of `p0` before this instruction. -/
   simpleIOOut : Vector SimpleIOData numSimpleIOPins
-  -- TODO do I also need to keep track of a boolean flag for each pin?
+  -- TODO do I also need to keep track of a boolean flag for each simple I/O pin here?
+
+  -- See below
+  waitingToWrite : Vector Bool numXBusPins
 
 abbrev Instruction (numInstr : Nat) :=
   _root_.Instruction (Fin numInstr) InternalReg XBus SimpleIO
@@ -143,6 +146,9 @@ namespace TickState
 
 @[inline] def clearSimpleIOOut (i : SimpleIO) : TickState → TickState :=
   setSimpleIOOut i 0
+
+@[inline] def setWaitingToWrite (i : XBus) (val : Bool) : TickState → TickState :=
+  fun state => { state with waitingToWrite := Vector.set state.waitingToWrite i val }
 
 end MC4000.TickState
 
@@ -340,7 +346,6 @@ structure State where
   - Waits on a blocked XBus operation.
 -/
 
--- TODO how does this relate to e.g. `mov x0 x1`, `mov x0 p0`, `add x0`, `teq x0 x1`, `mov p0 x0`, etc.
 -- TODO how does this relate to the exec, read, sleep, write, etc. states displayed on MC4000 chips?
 
 /-- Advance one CPU cycle across many interconnected chips.
