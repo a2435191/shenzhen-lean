@@ -581,10 +581,27 @@ where
 -- TODO somewhere enforce "cannot read pin twice"
 -- TODO test edge case behavior for e.g. `mov x0 x0` or `mov p0 p0`
 
+def advanceTimeUnit.defaultMaxFuel : ℕ := 10_000
+
 /-- Advance one time unit across many interconnected chips. This can only happen
   if every chip is in the `IOEffects.sleep` state (or empty, with no instructions TODO check this).
    -/
-def advanceTimeUnit : sorry := sorry
+def advanceTimeUnit {n : ℕ} (chips : Vector MC4000 n)
+    (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
+    (states : Vector State n) (fuel : ℕ := advanceTimeUnit.defaultMaxFuel) : Vector State n :=
+  match fuel with
+  | 0 => states
+  | k + 1 =>
+    -- TODO we should also advance if some chips can't execute any instructions I think
+    if h : states.all fun s => s.instructionState.isSleep then
+      -- TODO is any of the tick state affected after sleeping?
+      states.attachWith (fun s => s.instructionState.isSleep) (Vector.all_eq_true'.mp h)
+        |>.map fun ⟨s, hs⟩ =>
+          { s with instructionState := s.instructionState.sleepOne hs }
+    else
+      -- TODO could terminate early if no states change
+      let states' := advanceTick chips simpleIOConns xBusConns states
+      advanceTimeUnit chips simpleIOConns xBusConns states' k
 
 end
 
@@ -626,7 +643,7 @@ def states₂ := advance states₁
   | _ => println! "hmmm"
 
 
-#reduce states₂
+#reduce advanceTimeUnit #v[mc₀, mc₁] simpleIOConns xBusConns states₀ 16
 
 
 

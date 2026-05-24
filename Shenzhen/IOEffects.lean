@@ -84,13 +84,14 @@ instance : LawfulMonad (IOEffects ξ ι) where
 
 end
 
-def sleepOne : IOEffects ξ ι α → IOEffects ξ ι α
-| .sleep 1 _ next => next ()
-| .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
-| fx => fx
-
 abbrev isSleep : IOEffects ξ ι α → Bool
 | .sleep .. => true
 | _ => false
+
+def sleepOne (fx : IOEffects ξ ι α) (h : fx.isSleep = true) : IOEffects ξ ι α :=
+  match fx with
+  | .sleep 1 _ next => next ()
+  | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
+
 
 end IOEffects
