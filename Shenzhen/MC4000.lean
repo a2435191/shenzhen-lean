@@ -236,8 +236,8 @@ where
 /-- Find the index `i` of the next instruction at or after `start` that
   is enabled according to `flags[i]` and `cond`, looping back around from
   `i = m - 1` to `i = 0` if necessary. `none` if no such index exists.
-  (We skip the `IP` constructor because it would always be a `Fin m`,
-  as `m ≠ 0` by the existence of `start`.) -/
+  (We don't use the `IP` constructor because we want to be able to return `none`
+  for `m > 0`.) -/
 def nextIP {m} (flags : Vector ConditionalFlag m)
     (start : Fin m) (cond : ConditionalState m) : Option (Fin m) :=
   let foundOffset := Fin.find? fun offset =>
@@ -248,18 +248,6 @@ def nextIP {m} (flags : Vector ConditionalFlag m)
     | .neg => cond.negEnabled
     | .once => !cond.hasRun[i]
   foundOffset <&> (· + start)
-
-/-- Advance the IP inside `StateM` to the location of the next currently enabled instruction.
-  If impossible, stays on the current IP. Returns success (inside `StateM`). -/
-def advanceIP {m} (flags : Vector ConditionalFlag m) : StateM (InstructionState m) Bool := do
-  let state ← get
-  let .ofFin ip := state.ip | return false
-  let next := nextIP flags ip state.cond
-  match next with
-  | none => return false
-  | some ip' =>
-    modify <| InstructionState.setIP ip'
-    return true
 
 section
 
@@ -287,6 +275,7 @@ structure State where
 
   -- See below
   waitingToWrite : Vector Bool numXBusPins
+deriving Inhabited
 
 namespace State
 
@@ -463,24 +452,49 @@ theorem resolveXBusReadsAndPeeks_count_le (xc s t) : (resolveXBusReadsAndPeeks x
   A simple I/O read will use the previous `simpleIOOuts`s; it does not see new data from connected chips writing
   in the same tick. (TODO confirm this)
 
+  Increment the instruction pointer for each chip whose instruction has finished completely (i.e. ending in a `IOEffects.pure` state).
+  Then use `instructionEffects` to compute (and set) the `IOEffects` of the new instruction on the pure state.
+
   The effect of running this function `n` times for large `n` should be to get all chips
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
-def advanceTick {n : ℕ}
+def advanceTick {n : ℕ} (chips : Vector MC4000 n)
     (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus) (states : Vector State n)
     : Vector State n :=
-  go states (Vector.replicate n false)
+  let states' := stepUntilDone states (Vector.replicate n false)
   -- TODO I think we can use `alreadyTicked` to diagnose programs that never sleep
+
+  -- Now we advance the instruction pointer for any `.pure` states
+  states'.mapFinIdx' fun i s@{ m, instructionState, .. } =>
+    match instructionState with
+    | .pure is =>
+      match is.ip with
+      | .none => s -- TODO I think this is right for the case where there are no instructions
+      | .ofFin ip =>
+        if h : chips[i].m ≠ m then unreachable!
+        else
+          let flags : Vector ConditionalFlag m := cast (by simp_all) chips[i].flags
+          match nextIP flags ip is.cond with
+          | none => s -- TODO I think this is ok because if we ever lack a next IP it'll stay that way forever (?)
+          | some ip' =>
+            let is' : InstructionState m := is.setIP ip' -- not yet wrapped in effects
+            -- wrap in effects
+            let instructionEffects' := instructionEffects (chips[i].instrs[ip']) (cast (by grind) is')
+
+            { s with instructionState := cast (by grind) instructionEffects' }
+    | _ => s
 where
   originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n :=
     states.map State.simpleIOOut
 
-  go (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n :=
+  /-- Keep applying `step` until no further progress can be made, in which case
+    we're ready to end the tick. -/
+  stepUntilDone (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n :=
     match _h: step states alreadyTicked with -- this instead of `let` for the decreasing proof
     | (states', alreadyTicked') =>
       -- TODO: this conditional is equivalent to alreadyTicked' == alreadyTicked, so prove it and simplify this expression
       if alreadyTicked'.count false == alreadyTicked.count false then states
-      else go states' alreadyTicked' -- run until we don't make progress
+      else stepUntilDone states' alreadyTicked' -- run until we don't make progress
   termination_by alreadyTicked.count false
   decreasing_by
     rename_i originalStates h'
@@ -492,6 +506,10 @@ where
       _ ≤ (setMaskForPureAndSleep states alreadyTicked).count false := resolveXBusReadsAndPeeks_count_le ..
       _ ≤ _ := setMaskForPureAndSleep_count_le ..
 
+  -- TODO: make the code match this description. I don't think we need to pass around `alreadyTicked`
+  -- to the called functions. it should be much cleaner to do it in here (?)
+  /-- One step within processing a tick. For every state that hasn't already been ticked, update
+    it according to the outermost constructor. -/
   step (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
     let alreadyTicked := setMaskForPureAndSleep states alreadyTicked
 
@@ -504,6 +522,7 @@ where
     let (states, alreadyTicked) := resolveXBusReadsAndPeeks xBusConns states alreadyTicked
     let states := setXBusWriteFlags states
     (states, alreadyTicked)
+    -- TODO does order matter here?
 
 -- TODO somewhere enforce "cannot read pin twice"
 -- TODO test edge case behavior for e.g. `mov x0 x0` or `mov p0 p0`
