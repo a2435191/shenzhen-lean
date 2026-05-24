@@ -12,14 +12,14 @@ inductive IOEffects (ξ : Type u) (ι : Type v) : Type x → Type (max u v _)
   from `pin` can be read; then `next d` is the result of the computation. -/
 | xBusRead (pin : ξ) (next : IOEffects ξ ι (Integer → α)) : IOEffects _ _ α
 /-- `d` is some data to be thereafter written out of `outPin`, and `next ()` is returned after the write. -/
-| xBusWrite (outPin : ξ) (d : Integer) (next : IOEffects ξ ι α) : IOEffects _ _ α
+| xBusWrite (outPin : ξ) (next : IOEffects ξ ι (Integer × α)) : IOEffects _ _ α
 /-- `xBusPoll pin next` represents a computation delayed until the value
   from XBus pin `pin` arrives (but without consuming the value);
   then `next ()` is the result thereafter.
   This is used to implement the `slx` instruction. -/
 | xBusPoll (pin : ξ) (next : IOEffects ξ ι α) : IOEffects _ _ α
 | simpleIORead (pin : ι) (next : IOEffects ξ ι (SimpleIOData → α)) : IOEffects _ _ α
-| simpleIOWrite (outPin : ι) (d : SimpleIOData) (next : IOEffects ξ ι α) : IOEffects _ _ α
+| simpleIOWrite (outPin : ι) (next : IOEffects ξ ι (SimpleIOData × α)) : IOEffects _ _ α
 /-- Wait for `n` time units. -/
 | sleep (n : Nat) (h : n ≠ 0) (next : IOEffects ξ ι α) : IOEffects _ _ α
 
@@ -36,10 +36,10 @@ instance : Pure (IOEffects ξ ι) where
 def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
   | .pure a => .pure (f a)
   | .xBusRead pin next => .xBusRead pin (map (f ∘ ·) next)
-  | .xBusWrite pin d next => .xBusWrite pin d (map f next)
+  | .xBusWrite pin next => .xBusWrite pin (map (fun (d, a) => (d, f a)) next)
   | .xBusPoll pin next => .xBusPoll pin (map f next)
   | .simpleIORead pin next => .simpleIORead pin (map (f ∘ ·) next)
-  | .simpleIOWrite pin d next => .simpleIOWrite pin d (map f next)
+  | .simpleIOWrite pin next => .simpleIOWrite pin (map (fun (d, a) => (d, f a)) next)
   | .sleep n h next => .sleep n h (map f next)
 
 instance : Functor (IOEffects ξ ι) where
@@ -58,10 +58,10 @@ def seq (mf : IOEffects ξ ι (α → β)) (mx : Unit → IOEffects ξ ι α) : 
   match mf with
   | .pure f => f <$> mx ()
   | .xBusRead pin nextF => .xBusRead pin (seq (map Function.swap nextF) mx)
-  | .xBusWrite pin d nextF => .xBusWrite pin d (seq nextF mx)
+  | .xBusWrite pin nextF => .xBusWrite pin (seq (map (fun (d, f) a => (d, f a)) nextF) mx)
   | .xBusPoll pin nextF => .xBusPoll pin (seq nextF mx)
   | .simpleIORead pin nextF => .simpleIORead pin (seq (map Function.swap nextF) mx)
-  | .simpleIOWrite pin d nextF => .simpleIOWrite pin d (seq nextF mx)
+  | .simpleIOWrite pin nextF => .simpleIOWrite pin (seq (map (fun (d, f) a => (d, f a)) nextF) mx)
   | .sleep n h nextF => .sleep n h (seq nextF mx)
 termination_by sizeOf mf
 decreasing_by all_goals simp [sizeOf_map_eq_sizeOf, show ∀ n, 0 < 1 + n by omega]
@@ -84,7 +84,10 @@ theorem _root_.Function.comp_assoc {f : γ → δ} {g : β → γ} {h : α → �
 private theorem comp_map (g : α → β) (h : β → γ) (x : IOEffects ξ ι α) : (h ∘ g) <$> x = h <$> g <$> x := by
   induction x generalizing β γ
   <;> simp_all
-  <;> (rename_i ih; exact ih (h := fun x => h ∘ x) (g := fun x => g ∘ x))
+  <;> try (rename_i ih; exact ih (g := fun x => g ∘ x) (h := fun x => h ∘ x))
+  all_goals
+    rename_i ih;
+    exact ih (h := fun x => (x.1, h x.2)) (g := fun x => (x.1, g x.2))
 
 private theorem comp_map' {α β γ : Type u} {x : IOEffects ξ ι α} {f : β → γ} {g : α → β} : map f (map g x) = map (f ∘ g) x :=
   (comp_map ..).symm
