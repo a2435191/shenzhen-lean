@@ -164,55 +164,54 @@ def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat Inter
 end mk'
 
 @[reducible]
-def Effects (m : Nat) : Type → Type :=
-  StateT (InstructionState m) <| IOEffects XBus SimpleIO
+private def Effects (m : ℕ) : Type → Type :=
+  StateT (InstructionState m) (IOEffects XBus SimpleIO)
 
-/-- Return an `IOEffects` within the greater monad -/
-def ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
-  fun is => bfx <&> (·, is)
-
-/-- Calculate the effect of a single instruction, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks, i.e. `TickState`). Does not
+/-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks). Does not
   update the instruction pointer at all. -/
-def instructionEffects {m} (instr : Instruction m) : Effects m Unit := do
-  match instr with
-  -- Basic
-  | .nop => return
-  | .mov src dst =>
-    let d ← readRegOrInt src
-    match dst with
-    | .null => return
-    | .internal .acc => modify ({· with acc := d})
-    | .simpleIO i =>
-      let d := d.toSimpleIOData
-      ret (.simpleIOWrite i d pure)
-    | .xBus x => ret (.xBusWrite x d pure)
-  | .jmp _ => return -- the jump is taken care of elsewhere
-  | .slp ri =>
-    let d ← readRegOrInt ri
-    match d.clampToNat with
-    | 0 => return
-    | k + 1 => ret <| .sleep (k + 1) (Nat.succ_ne_zero _) pure
-  | .slx r => ret (.xBusPoll r pure)
-  -- Arithmetic
-  | .add ri => doArith ri (· + ·)
-  | .sub ri => doArith ri (· - ·)
-  | .mul ri => doArith ri (· * ·)
-  | .not => modify (.modifyAcc Integer.not)
-  | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
-  | .dst ri₁ ri₂ =>
-    -- set the `ri₁`th digit of `acc` to `ri₂`
-    let digit ← readRegOrInt ri₁
-    let num ← readRegOrInt ri₂
-    modify (.modifyAcc (Integer.setDigit · digit num))
-  -- Test (comparison)
-  | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
-  | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
-  | .tlt ri₁ ri₂ => doCmp ri₁ ri₂ (· < ·)
-  | .tcp ri₁ ri₂ =>
-    let d₁ ← readRegOrInt ri₁
-    let d₂ ← readRegOrInt ri₂
-    modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
+def instructionEffects {m} (instr : Instruction m) : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) :=
+  fun s => impl s <&> Prod.snd
 where
+  impl : Effects m Unit := do
+    match instr with
+    -- Basic
+    | .nop => return
+    | .mov src dst =>
+      let d ← readRegOrInt src
+      match dst with
+      | .null => return
+      | .internal .acc => modify ({· with acc := d})
+      | .simpleIO i =>
+        let d := d.toSimpleIOData
+        ret (.simpleIOWrite i d pure)
+      | .xBus x => ret (.xBusWrite x d pure)
+    | .jmp _ => return -- the jump is taken care of elsewhere
+    | .slp ri =>
+      let d ← readRegOrInt ri
+      match d.clampToNat with
+      | 0 => return
+      | k + 1 => ret <| .sleep (k + 1) (Nat.succ_ne_zero _) pure
+    | .slx r => ret (.xBusPoll r pure)
+    -- Arithmetic
+    | .add ri => doArith ri (· + ·)
+    | .sub ri => doArith ri (· - ·)
+    | .mul ri => doArith ri (· * ·)
+    | .not => modify (.modifyAcc Integer.not)
+    | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
+    | .dst ri₁ ri₂ =>
+      -- set the `ri₁`th digit of `acc` to `ri₂`
+      let digit ← readRegOrInt ri₁
+      let num ← readRegOrInt ri₂
+      modify (.modifyAcc (Integer.setDigit · digit num))
+    -- Test (comparison)
+    | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
+    | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
+    | .tlt ri₁ ri₂ => doCmp ri₁ ri₂ (· < ·)
+    | .tcp ri₁ ri₂ =>
+      let d₁ ← readRegOrInt ri₁
+      let d₂ ← readRegOrInt ri₂
+      modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
+
   readRegOrInt (ri : RegOrInt) : Effects m Integer := do
     match ri with
     | .int n => return n
@@ -225,10 +224,14 @@ where
     let d ← readRegOrInt ri
     modify (.modifyAcc' f d)
 
-  doCmp ri₁ ri₂ f := do
+  doCmp (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → Bool) : Effects m Unit := do
     let d₁ ← readRegOrInt ri₁
     let d₂ ← readRegOrInt ri₂
     modify (.setCondIff (f d₁ d₂))
+
+  /-- Return an `IOEffects` within the greater monad -/
+  ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
+    fun is => bfx <&> (·, is)
 
 /-- Find the index `i` of the next instruction at or after `start` that
   is enabled according to `flags[i]` and `cond`, looping back around from
