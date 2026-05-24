@@ -168,7 +168,7 @@ private def Effects (m : ℕ) : Type → Type :=
   StateT (InstructionState m) (IOEffects XBus SimpleIO)
 
 /-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks). Does not
-  update the instruction pointer at all. -/
+  increment the instruction pointer, but *does* set it on `.jmp` instructions. -/
 def instructionEffects {m} (instr : Instruction m) : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) :=
   fun s => impl s <&> Prod.snd
 where
@@ -185,7 +185,7 @@ where
         let d := d.toSimpleIOData
         ret (.simpleIOWrite i d pure)
       | .xBus x => ret (.xBusWrite x d pure)
-    | .jmp _ => return -- the jump is taken care of elsewhere
+    | .jmp ip => modify (InstructionState.setIP ip)
     | .slp ri =>
       let d ← readRegOrInt ri
       match d.clampToNat with
