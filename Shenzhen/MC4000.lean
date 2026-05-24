@@ -368,6 +368,14 @@ where
         | _ => none
       else none
 
+/-- Each chip writing XBus sets its own `waiting-to-write` flag. -/
+def setXBusWriteFlags {n : ℕ}
+    (states : Vector State n) : Vector State n :=
+  states.map fun
+    | s@⟨_, .xBusWrite pin _ _, tickState⟩ =>
+      { s with tickState := tickState.setWaitingToWrite pin true }
+    | other => other
+
 /-! ## What happens in a tick
   In a tick (CPU cycle), a chip does exactly one of the following:
   - Sleeps (as in `slp`, not `slx`). At the end of the tick, the instruction pointer only advances
