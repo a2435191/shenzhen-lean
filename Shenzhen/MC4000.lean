@@ -274,7 +274,7 @@ structure State where
 
   /-- The values being written out of each simple I/O pin. Reading
     from a pin sets this value to 0 (but the read value is just the max of all the other writers on this wire).
-    See `resolveTopLevelSimpleIO...` below.
+    See `resolveSimpleIO...` below.
 
     This may change from one CPU cycle to another within an instruction.
     For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
@@ -318,7 +318,7 @@ end State
                  < `tick end`.
 -/
 
-/-- Try to resolve the top-level (outermost) XBus reads and peeks with writes for which the
+/-- Try to resolve the outermost XBus reads and peeks with writes for which the
   waiting-to-write flag has been set and `alreadyTicked` is `false`. If there are multiple such writers,
   the order is unspecified (but really left-to-right in `states`).
   `alreadyTicked[i] = true` indicates that `states[i]` has already been ticked and should be ignored. -/
@@ -374,7 +374,7 @@ def setMaskForPureAndSleep {n} (states : Vector State n) (alreadyTicked : Vector
     | .sleep .. | .pure _ => true
     | _ => b
 
-/-- Resolve all top-level `IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
+/-- Resolve all outermost`IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
   by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs.
   Ignores wherever `alreadyTicked[i] = true`. -/
 def resolveSimpleIOWrites {n : ℕ}
@@ -386,7 +386,7 @@ def resolveSimpleIOWrites {n : ℕ}
       | .simpleIOWrite pin d next => ⟨m, next (), simpleIOOut.set pin d, waitingToWrite⟩
       | _ => s
 
-/-- Resolve all top-level `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
+/-- Resolve all outermost `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
   to zero wherever a read occurs. Note that this uses `originalSimpleIOOuts`, i.e. those
   from the start of the tick before any simple I/O reads or writes occurred. This function
   also ignores wherever `alreadyTicked[i] = true`. -/
