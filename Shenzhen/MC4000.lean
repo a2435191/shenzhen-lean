@@ -374,6 +374,38 @@ def setMaskForPureAndSleep {n} (states : Vector State n) (alreadyTicked : Vector
     | .sleep .. | .pure _ => true
     | _ => b
 
+/-- Resolve all top-level `IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
+  by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs.
+  Ignores wherever `alreadyTicked[i] = true`. -/
+def resolveSimpleIOWrites {n : ℕ}
+  (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n :=
+  (states.zip alreadyTicked).map fun
+    | (s, true) => s
+    | (s@⟨m, instructionState, simpleIOOut, waitingToWrite⟩, false) =>
+      match instructionState with
+      | .simpleIOWrite pin d next => ⟨m, next (), simpleIOOut.set pin d, waitingToWrite⟩
+      | _ => s
+
+/-- Resolve all top-level `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
+  to zero wherever a read occurs. Note that this uses `originalSimpleIOOuts`, i.e. those
+  from the start of the tick before any simple I/O reads or writes occurred. This function
+  also ignores wherever `alreadyTicked[i] = true`. -/
+def resolveSimpleIOReads {n : ℕ}
+    (simpleIOConns : Conns n SimpleIO) (states : Vector State n)
+    (originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n)
+    (alreadyTicked : Vector Bool n) : Vector State n :=
+  states.mapFinIdx' fun i s@⟨m, instructionState, simpleIOOut, waitingToWrite⟩ =>
+    if alreadyTicked[i] then s
+    else
+      match instructionState with
+      | .simpleIORead pin next =>
+        let max := simpleIOConns.neighbors i pin
+          |>.map (fun (i', pin') => originalSimpleIOOuts[i'][pin'])
+          |>.max?
+          |>.getD 0
+        ⟨m, next max, simpleIOOut.set pin 0, waitingToWrite⟩
+      | _ => s
+
 /-! ## What happens in a tick
   In a tick (CPU cycle), a chip does exactly one of the following:
   - Sleeps (as in `slp`, not `slx`). At the end of the tick, the instruction pointer only advances
@@ -412,6 +444,9 @@ partial def advanceTick {n : ℕ}
   go states (Vector.replicate n true)
   -- TODO I think we can use `alreadyTicked` to diagnose programs that never sleep
 where
+  originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n :=
+    states.map State.simpleIOOut
+
   go (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n :=
     let (states', alreadyTicked') := step states alreadyTicked
     if alreadyTicked' == alreadyTicked then states
@@ -421,10 +456,13 @@ where
   step (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
     let alreadyTicked := setMaskForPureAndSleep states alreadyTicked
 
+    -- TODO make sure this is using the version of `states` from the beginning of the tick
+    -- TODO double check that using that version is correct
+    -- TODO something about sub-tick ordering? What about with simple I/O writes clearing their pin's buffer?
+    let states := resolveSimpleIOReads simpleIOConns states originalSimpleIOOuts alreadyTicked
+    let states := resolveSimpleIOWrites states alreadyTicked
+
     let (states, alreadyTicked) := resolveXBusReadsAndPeeks xBusConns states alreadyTicked
-
-    -- TODO
-
     let states := setXBusWriteFlags states
     (states, alreadyTicked)
 
