@@ -553,3 +553,34 @@ where
 def advanceTimeUnit : sorry := sorry
 
 end
+
+namespace Test
+
+def mc₀ : MC4000 :=
+  .mk #v[.none, .none]
+      #v[.mov (.int 100) (.xBus 1), .slp (.int 1)]
+
+def mc₁ : MC4000 :=
+  .mk (Vector.replicate _ .none)
+    #v[
+      -- .nop,
+      .mov (.xBus 0) (.internal .acc),
+      .slp (.int 1)]
+
+def simpleIOConns : Conns 2 SimpleIO :=
+  fun _ _ => false
+
+def xBusConns : Conns 2 XBus :=
+  fun | (0, 1), (1, 0) | (1, 0), (0, 1) => true | _, _ => false
+
+def advance :=
+  advanceTick #v[mc₀, mc₁] simpleIOConns xBusConns
+
+def states₀ : Vector State 2 := Vector.replicate _ (.blank 2)
+def states₁ := advance states₀
+
+#reduce states₁
+
+
+
+end Test
