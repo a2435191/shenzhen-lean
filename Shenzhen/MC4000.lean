@@ -378,7 +378,7 @@ def setMaskForPureAndSleep {n} (states : Vector State n) (alreadyTicked : Vector
     | _ => b
 
 /-- Resolve all outermost`IOEffects.simpleIOWrite`s (meaning the outermost constructor of a `State.instructionState`)
-  by overwriting `TickState.simpleIOOut` with the written value wherever a write occurs.
+  by overwriting `simpleIOOut` with the written value wherever a write occurs.
   Ignores wherever `alreadyTicked[i] = true`. -/
 def resolveSimpleIOWrites {n : ℕ}
   (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n :=
@@ -389,7 +389,7 @@ def resolveSimpleIOWrites {n : ℕ}
       | .simpleIOWrite pin d next => ⟨m, next (), simpleIOOut.set pin d, waitingToWrite⟩
       | _ => s
 
-/-- Resolve all outermost `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `TickState.simpleIOOut`
+/-- Resolve all outermost `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `simpleIOOut`
   to zero wherever a read occurs. Note that this uses `originalSimpleIOOuts`, i.e. those
   from the start of the tick before any simple I/O reads or writes occurred. This function
   also ignores wherever `alreadyTicked[i] = true`. -/
@@ -434,7 +434,7 @@ def resolveSimpleIOReads {n : ℕ}
 
 /-- Advance one CPU cycle across many interconnected chips.
 
-  A simple I/O read will use the previous `TickState`; it does not see new data from connected chips writing
+  A simple I/O read will use the previous `simpleIOOuts`s; it does not see new data from connected chips writing
   in the same tick. (TODO confirm this)
 
   The effect of running this function `n` times for large `n` should be to get all chips
