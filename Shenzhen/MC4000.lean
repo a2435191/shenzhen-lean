@@ -325,6 +325,49 @@ structure State where
                  < `tick end`.
 -/
 
+/-- Try to resolve the top-level (outermost) XBus reads and peeks with writes for which the
+  waiting-to-write flag has been set and `mask` is `true`. If there are multiple such writers,
+  the order is unspecified (but really left-to-right in `states`).
+  `mask[i] = false` indicates that `states[i]` has already been ticked and should be ignored. -/
+def resolveXBusReadsAndPeeks {n : ℕ} (xBusConns : Conns n XBus)
+    (states : Vector State n) (mask : Vector Bool n) : Vector State n × Vector Bool n :=
+  (List.finRange n).foldl (init := (states, mask)) fun (states, mask) i =>
+    if !mask[i] then (states, mask)
+    else
+      match states[i].instructionState with
+      | .xBusRead pin next =>
+        match findWrite? (i, pin) states mask with
+        | .some ⟨j, _, d, next'⟩ =>
+          let states' := states
+            |>.set i { states[i] with instructionState := next d }
+            |>.set j { states[j] with instructionState := next' () }
+          (states', mask) -- Don't update mask— we might have more "free" operations (second bullet point below) to do
+        | none => (states, mask.set i false) -- update mask since this read blocks, meaning we're done for the tick
+      | .xBusPoll pin next =>
+        match findWrite? (i, pin) states mask with
+        | .some ⟨j, _, _, next'⟩ =>
+          let states' := states
+            |>.set i { states[i] with instructionState := next () }
+            -- don't resolve the write since this is just a poll
+          (states', mask)
+        | none => (states, mask.set i false) -- update mask since this poll blocks
+      | _ => (states, mask)
+where
+  /-- Compute the first index of an XBus write in `states` s.t. it is on a pin connected to `whichPin`,
+    its `mask` bit is set, and its `waiting-to-write` flag is set.
+    Also return the `(outPin, d, next)` arguments to the `.xBusWrite` constructor. -/
+  findWrite? (whichPin : Fin n × XBus) (states : Vector State n) (mask : Vector Bool n)
+      : Option ((j : Fin n) × XBus × Integer × (Unit → IOEffects XBus SimpleIO (InstructionState states[j].m))) :=
+    Fin.findSome? (n := n) fun j =>
+      if mask[j] then
+        match h : states[j] with
+        | ⟨m, .xBusWrite pin d next, tickState⟩ =>
+          if tickState.waitingToWrite[pin] && xBusConns whichPin (j, pin) then
+            some ⟨j, pin, d, cast (by simp [h]) next⟩
+          else none
+        | _ => none
+      else none
+
 /-! ## What happens in a tick
   In a tick (CPU cycle), a chip does exactly one of the following:
   - Sleeps (as in `slp`, not `slx`). At the end of the tick, the instruction pointer only advances
