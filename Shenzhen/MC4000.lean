@@ -438,8 +438,7 @@ def resolveSimpleIOReads {n : ℕ}
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
 partial def advanceTick {n : ℕ}
-    (chips : Vector MC4000 n) (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
-    (states : Vector State n)
+    (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus) (states : Vector State n)
     : Vector State n :=
   go states (Vector.replicate n true)
   -- TODO I think we can use `alreadyTicked` to diagnose programs that never sleep
