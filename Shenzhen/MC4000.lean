@@ -24,17 +24,12 @@ namespace MC4000
   this way we get `Repr` for free and nicer pattern-matching. -/
 inductive IP : Nat → Type
 | none : IP 0
-| ofFin : Fin (k + 1) → IP (k + 1)
+| ofFin : Fin m → IP m
 deriving Repr
 
 namespace IP
 
 instance : ReprAtom (IP 0) where
-
-def ofFin' : Fin m → IP m :=
-  match m with
-  | 0 => Fin.elim0
-  | _ + 1 => .ofFin
 
 def toFin (h : m ≠ 0) : IP m → Fin m
 | .none => False.elim (h rfl)
@@ -52,7 +47,7 @@ def null : IP m :=
 instance : Inhabited (IP m) where
   default := .null
 
-instance : Coe (Fin m) (IP m) := ⟨.ofFin'⟩
+instance : Coe (Fin m) (IP m) := ⟨.ofFin⟩
 
 end IP
 
