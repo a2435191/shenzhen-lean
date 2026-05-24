@@ -88,13 +88,13 @@ instance {m} : ToString (InstructionState m) where
     cond = {condStr}; \
     hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst})"
 
-def init (m) : InstructionState m :=
+def blank (m) : InstructionState m :=
   { acc := 0,
     cond := ⟨Vector.replicate m false, false, false⟩,
     ip := .null }
 
 instance : Inhabited (InstructionState m) :=
-  ⟨init m⟩
+  ⟨blank m⟩
 
 @[inline, specialize]
 def modifyAcc (f : Integer → Integer) : InstructionState m → InstructionState m :=
@@ -173,6 +173,7 @@ def instructionEffects {m} (instr : Instruction m) : InstructionState m → IOEf
   fun s => impl s <&> Prod.snd
 where
   impl : Effects m Unit := do
+    -- TODO: somewhere (maybe here) set the conditional flag corresponding to "@" after executing this instr
     match instr with
     -- Basic
     | .nop => return
@@ -279,11 +280,10 @@ deriving Inhabited
 
 namespace State
 
-@[inline] def setSimpleIOOut (i : SimpleIO) (val : SimpleIOData) : State → State :=
-  fun state => { state with simpleIOOut := Vector.set state.simpleIOOut i val }
-
-@[inline] def clearSimpleIOOut (i : SimpleIO) : State → State :=
-  setSimpleIOOut i 0
+def blank (m : ℕ) : State :=
+  { m,
+    instructionState := pure (.blank m),
+    simpleIOOut := #v[0, 0], waitingToWrite := #v[false, false] }
 
 @[inline] def setWaitingToWrite (i : XBus) (val : Bool) : State → State :=
   fun state => { state with waitingToWrite := Vector.set state.waitingToWrite i val }
@@ -461,27 +461,47 @@ theorem resolveXBusReadsAndPeeks_count_le (xc s t) : (resolveXBusReadsAndPeeks x
 def advanceTick {n : ℕ} (chips : Vector MC4000 n)
     (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus) (states : Vector State n)
     : Vector State n :=
-  let states' := stepUntilDone states (Vector.replicate n false)
+
+  -- First, any pure states (meaning about to execute an instruction) get wrapped in `IOEffects`
+  -- by `instructionEffects`. This is so that we can just pass in totally blank states, and I
+  -- think it makes more sense this way
+  let states := states.mapFinIdx' fun i s@{ m, instructionState := fx, .. } =>
+    match fx with
+    | .pure is =>
+      match is.ip with
+      | .none => s -- TODO I think this is right for the case where there are no instructions
+      | .ofFin ip =>
+        if h : chips[i].m ≠ m then unreachable! -- TODO: prove this invariant
+        else
+          -- TODO: also assert that the right flags are enabled for this instr.
+          -- TODO: also assert other things about the current state
+
+          let fx' := instructionEffects (chips[i].instrs[ip]) (cast (by grind) is)
+          { s with instructionState := cast (by grind) fx' }
+    | _ => s
+
+  -- See `stepUntilDone`
+  let states := stepUntilDone states (Vector.replicate n false)
   -- TODO I think we can use `alreadyTicked` to diagnose programs that never sleep
 
-  -- Now we advance the instruction pointer for any `.pure` states
-  states'.mapFinIdx' fun i s@{ m, instructionState, .. } =>
+  -- TODO think about having this happen in `instructionEffects`
+  -- Now we advance the instruction pointer for any `.pure` states.
+  states.mapFinIdx' fun i s@{ m, instructionState, .. } =>
     match instructionState with
     | .pure is =>
       match is.ip with
       | .none => s -- TODO I think this is right for the case where there are no instructions
       | .ofFin ip =>
-        if h : chips[i].m ≠ m then unreachable!
+        if h : chips[i].m ≠ m then unreachable! -- TODO: prove this invariant (see above)
         else
           let flags : Vector ConditionalFlag m := cast (by simp_all) chips[i].flags
           match nextIP flags ip is.cond with
           | none => s -- TODO I think this is ok because if we ever lack a next IP it'll stay that way forever (?)
           | some ip' =>
-            let is' : InstructionState m := is.setIP ip' -- not yet wrapped in effects
-            -- wrap in effects
-            let instructionEffects' := instructionEffects (chips[i].instrs[ip']) (cast (by grind) is')
-
-            { s with instructionState := cast (by grind) instructionEffects' }
+            -- Unlike an old commit, we don't update the state with `instructionEffects`. That always happens at the beginning
+            -- of the tick (see above)
+            let is' : InstructionState m := is.setIP ip' -- just set the new IP
+            { s with instructionState := pure (cast (by grind) is') }
     | _ => s
 where
   originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n :=
