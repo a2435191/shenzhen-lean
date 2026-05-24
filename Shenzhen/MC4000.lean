@@ -443,7 +443,7 @@ def resolveSimpleIOReads {n : ℕ}
 partial def advanceTick {n : ℕ}
     (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus) (states : Vector State n)
     : Vector State n :=
-  go states (Vector.replicate n true)
+  go states (Vector.replicate n false)
   -- TODO I think we can use `alreadyTicked` to diagnose programs that never sleep
 where
   originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n :=
