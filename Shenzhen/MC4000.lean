@@ -5,12 +5,12 @@ import Shenzhen.Util
 import Shenzhen.IOEffects
 import Shenzhen.Notation
 
--- disable dbg_trace
-open Lean in
-@[macro Lean.Parser.Term.dbgTrace] def expandDbgTraceOverride : Macro
-  | `(dbg_trace $_arg:interpolatedStr; $body) => `($body)
-  | `(dbg_trace $_arg:term; $body)            => `($body)
-  | _                                         => Macro.throwUnsupported
+-- -- disable dbg_trace
+-- open Lean in
+-- @[macro Lean.Parser.Term.dbgTrace] def expandDbgTraceOverride : Macro
+--   | `(dbg_trace $_arg:interpolatedStr; $body) => `($body)
+--   | `(dbg_trace $_arg:term; $body)            => `($body)
+--   | _                                         => Macro.throwUnsupported
 
 namespace MC4000
 
@@ -241,13 +241,14 @@ where
   ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
     fun is => bfx <&> (·, is)
 
-/-- Find the index `i` of the next instruction at or after `start` that
+/-- Find the index `i` of the next instruction **greater than** `curr` that
   is enabled according to `flags[i]` and `cond`, looping back around from
   `i = m - 1` to `i = 0` if necessary. `none` if no such index exists.
   (We don't use the `IP` constructor because we want to be able to return `none`
   for `m > 0`.) -/
 def nextIP {m} (flags : Vector ConditionalFlag m)
-    (start : Fin m) (cond : ConditionalState m) : Option (Fin m) :=
+    (curr : Fin m) (cond : ConditionalState m) : Option (Fin m) :=
+  let start := curr.succ' -- where we start looking
   let foundOffset := Fin.find? fun offset =>
     let i := offset + start
     match flags[i] with
@@ -511,12 +512,16 @@ def advanceTick {n : ℕ} (chips : Vector MC4000 n)
   states.mapFinIdx' fun i s@{ m, instructionState, .. } =>
     match instructionState with
     | .pure is =>
+      dbg_trace "pure pure pure"
       match is.ip with
       | .none => s -- TODO I think this is right for the case where there are no instructions
       | .ofFin ip =>
+        dbg_trace "pure here 2"
         if h : chips[i].m ≠ m then unreachable! -- TODO: prove this invariant (see above)
         else
+          dbg_trace "pure here 3"
           let flags : Vector ConditionalFlag m := cast (by simp_all) chips[i].flags
+          dbg_trace "next ip is {nextIP flags ip is.cond}"
           match nextIP flags ip is.cond with
           | none => s -- TODO I think this is ok because if we ever lack a next IP it'll stay that way forever (?)
           | some ip' =>
@@ -598,6 +603,7 @@ def advanceTimeUnit {n : ℕ} (chips : Vector MC4000 n)
       states.attachWith (fun s => s.instructionState.isSleep) (Vector.all_eq_true'.mp h)
         |>.map fun ⟨s, hs⟩ =>
           { s with instructionState := s.instructionState.sleepOne hs }
+        -- TODO: advance the IP by one for states that just woke up
     else
       -- TODO could terminate early if no states change
       let states' := advanceTick chips simpleIOConns xBusConns states
@@ -630,6 +636,7 @@ def advance :=
 def states₀ : Vector State 2 := Vector.replicate _ (.blank 2)
 def states₁ := advance states₀
 def states₂ := advance states₁
+def states₃ := advance states₂
 
 #eval do
   let ⟨m, fx, simpleIOOut, waitingToWrite⟩ := states₂[0]
@@ -642,8 +649,7 @@ def states₂ := advance states₁
   | .xBusWrite pin d next => println! ".xBusWrite x{pin} {d} ⋯"
   | _ => println! "hmmm"
 
-
-#reduce advanceTimeUnit #v[mc₀, mc₁] simpleIOConns xBusConns states₀ 16
+#reduce advanceTimeUnit #v[mc₀, mc₁] simpleIOConns xBusConns states₀ 100
 
 
 

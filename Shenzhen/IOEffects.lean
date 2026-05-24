@@ -28,7 +28,6 @@ namespace IOEffects
 instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
   ⟨pure default⟩
 
-
 instance : Pure (IOEffects ξ ι) where
   pure := .pure
 
