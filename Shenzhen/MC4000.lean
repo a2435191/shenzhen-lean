@@ -170,15 +170,54 @@ def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat Inter
 
 end mk'
 
+/-- Find the index `i` of the next instruction **greater than** `curr` that
+  is enabled according to `flags[i]` and `cond`, looping back around from
+  `i = m - 1` to `i = 0` if necessary. `none` if no such index exists.
+  (We don't use the `IP` constructor because we want to be able to return `none`
+  for `m > 0`.) -/
+def nextIP {m} (flags : Vector ConditionalFlag m)
+    (curr : Fin m) (cond : ConditionalState m) : Option (Fin m) :=
+  let start := curr.succ' -- where we start looking
+  let foundOffset := Fin.find? fun offset =>
+    let i := offset + start
+    match flags[i] with
+    | .none => true
+    | .pos => cond.posEnabled
+    | .neg => cond.negEnabled
+    | .once => !cond.hasRun[i]
+  foundOffset <&> (· + start)
+
+/-- Advance the instruction pointer to the next enabled location (possibly wrapping around or,
+  rarely, getting stuck if there are no enabled locations). Does not handle `jmp` instructions. -/
+def advanceIP (flags : Vector ConditionalFlag m)
+    : InstructionState m → InstructionState m := fun is =>
+    match is.ip with
+    | .none => is -- TODO I think this is right for the case where there are no instructions
+    | .ofFin ip =>
+      match nextIP flags ip is.cond with
+      | none => is -- TODO I think this is ok because if we ever lack a next IP it'll stay that way forever (?)
+      | some ip' =>
+        is.setIP ip' -- just set the new IP
+
 @[reducible]
 private def Effects (m : ℕ) : Type → Type :=
   StateT (InstructionState m) (IOEffects XBus SimpleIO)
 
 /-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks). Does not
   increment the instruction pointer, but *does* set it on `.jmp` instructions. -/
-def instructionEffects {m} (instr : Instruction m) : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) :=
-  fun s => impl s <&> Prod.snd
+def instructionEffects {m} (instr : Instruction m) (flags : Vector ConditionalFlag m)
+    : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) :=
+  let res := impl *> setNextIP
+  fun s => res s <&> Prod.snd
 where
+  /-- Here we tell ensure that `.pure` states (whether buried under other `IOEffects` or not)
+    advance the instruction pointer. -/
+  setNextIP : Effects m Unit := do
+    match instr with
+    | .jmp ip' => modify (InstructionState.setIP ip')
+    | _ => modify (advanceIP flags)
+
+  /-- Handle everything except for updating the IP -/
   impl : Effects m Unit := do
     -- TODO: somewhere (maybe here) set the conditional flag corresponding to "@" after executing this instr
     match instr with
@@ -193,7 +232,7 @@ where
         let d := d.toSimpleIOData
         ret (.simpleIOWrite i d pure)
       | .xBus x => ret (.xBusWrite x d pure)
-    | .jmp ip => modify (InstructionState.setIP ip)
+    | .jmp _ => return -- handled in `setNextIP`
     | .slp ri =>
       let d ← readRegOrInt ri
       match d.clampToNat with
@@ -240,23 +279,6 @@ where
   /-- Return an `IOEffects` within the greater monad -/
   ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
     fun is => bfx <&> (·, is)
-
-/-- Find the index `i` of the next instruction **greater than** `curr` that
-  is enabled according to `flags[i]` and `cond`, looping back around from
-  `i = m - 1` to `i = 0` if necessary. `none` if no such index exists.
-  (We don't use the `IP` constructor because we want to be able to return `none`
-  for `m > 0`.) -/
-def nextIP {m} (flags : Vector ConditionalFlag m)
-    (curr : Fin m) (cond : ConditionalState m) : Option (Fin m) :=
-  let start := curr.succ' -- where we start looking
-  let foundOffset := Fin.find? fun offset =>
-    let i := offset + start
-    match flags[i] with
-    | .none => true
-    | .pos => cond.posEnabled
-    | .neg => cond.negEnabled
-    | .once => !cond.hasRun[i]
-  foundOffset <&> (· + start)
 
 section
 
@@ -491,7 +513,7 @@ def advanceTick {n : ℕ} (chips : Vector MC4000 n)
           -- TODO: also assert that the right flags are enabled for this instr.
           -- TODO: also assert other things about the current state
 
-          let fx' := instructionEffects (chips[i].instrs[ip]) (cast (by grind) is)
+          let fx' := instructionEffects (chips[i].instrs[ip]) chips[i].flags (cast (by grind) is)
           { s with instructionState := cast (by grind) fx' }
     | _ => s
 
@@ -506,30 +528,13 @@ def advanceTick {n : ℕ} (chips : Vector MC4000 n)
     | _ => dbgTrace "hmmmmmm") fun () =>
   -- TODO I think we can use `alreadyTicked` to diagnose programs that never sleep
 
-  -- TODO think about having this happen in `instructionEffects`
-  -- Also TODO this will totally screw up `.jmp` instructions
-  -- Now we advance the instruction pointer for any `.pure` states.
-  states.mapFinIdx' fun i s@{ m, instructionState, .. } =>
-    match instructionState with
-    | .pure is =>
-      dbg_trace "pure pure pure"
-      match is.ip with
-      | .none => s -- TODO I think this is right for the case where there are no instructions
-      | .ofFin ip =>
-        dbg_trace "pure here 2"
-        if h : chips[i].m ≠ m then unreachable! -- TODO: prove this invariant (see above)
-        else
-          dbg_trace "pure here 3"
-          let flags : Vector ConditionalFlag m := cast (by simp_all) chips[i].flags
-          dbg_trace "next ip is {nextIP flags ip is.cond}"
-          match nextIP flags ip is.cond with
-          | none => s -- TODO I think this is ok because if we ever lack a next IP it'll stay that way forever (?)
-          | some ip' =>
-            -- Unlike an old commit, we don't update the state with `instructionEffects`. That always happens at the beginning
-            -- of the tick (see above)
-            let is' : InstructionState m := is.setIP ip' -- just set the new IP
-            { s with instructionState := pure (cast (by grind) is') }
-    | _ => s
+
+  -- We used to advance the instruction pointer for any `.pure` states here.
+  -- But `instructionEffects` does that for us now
+  -- (of course, the update is only apparent in the `.pure` state, i.e. at the end of the tick)
+
+  states
+
 where
   originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n :=
     states.map State.simpleIOOut
@@ -590,20 +595,28 @@ def advanceTimeUnit.defaultMaxFuel : ℕ := 10_000
 
 /-- Advance one time unit across many interconnected chips. This can only happen
   if every chip is in the `IOEffects.sleep` state (or empty, with no instructions TODO check this).
+
+  Until all chips are empty, we call `advanceTick`.
+  Sometimes chips *never* sleep, so `fuel` serves as an upper bound on the number of iterations.
+  This function returns success, i.e. whether we returned before `fuel` hit zero.
+
+  If successful, the instruction pointer of any chips that have finished sleeping (remember
+  that chips can sleep for multiple time units) is incremented (or set in the case of a `.jmp`).
    -/
 def advanceTimeUnit {n : ℕ} (chips : Vector MC4000 n)
     (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
-    (states : Vector State n) (fuel : ℕ := advanceTimeUnit.defaultMaxFuel) : Vector State n :=
+    (states : Vector State n) (fuel : ℕ := advanceTimeUnit.defaultMaxFuel) : Bool × Vector State n :=
   match fuel with
-  | 0 => states
+  | 0 => (false, states)
   | k + 1 =>
     -- TODO we should also advance if some chips can't execute any instructions I think
     if h : states.all fun s => s.instructionState.isSleep then
       -- TODO is any of the tick state affected after sleeping?
-      states.attachWith (fun s => s.instructionState.isSleep) (Vector.all_eq_true'.mp h)
+      let states' := states
+        |>.attachWith (fun s => s.instructionState.isSleep) (Vector.all_eq_true'.mp h)
         |>.map fun ⟨s, hs⟩ =>
           { s with instructionState := s.instructionState.sleepOne hs }
-        -- TODO: advance the IP by one for states that just woke up
+      (true, states')
     else
       -- TODO could terminate early if no states change
       let states' := advanceTick chips simpleIOConns xBusConns states
