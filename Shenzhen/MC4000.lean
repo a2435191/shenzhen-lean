@@ -322,10 +322,11 @@ def resolveXBusReadsAndPeeks {n : ℕ} (xBusConns : Conns n XBus)
       match states[i].instructionState with
       | .xBusRead pin next =>
         match findWrite? (i, pin) states alreadyTicked with
-        | .some ⟨j, _, d, next'⟩ =>
+        | .some ⟨j, pin, d, next'⟩ =>
           let states' := states
             |>.set i { states[i] with instructionState := next d }
-            |>.set j { states[j] with instructionState := next' () }
+            -- TODO: somewhere else in some comment I say that this is tolerant of multiple writes, idt that's true since we clear `waitingToWrite[pin]` here? Think about this
+            |>.set j { states[j] with instructionState := next' (), waitingToWrite := states[j].waitingToWrite.set pin false }
           (states', alreadyTicked) -- Don't update mask— we might have more "free" operations (second bullet point below) to do
         | none => (states, alreadyTicked.set i true) -- update mask since this read blocks, meaning we're done for the tick
       | .xBusPoll pin next =>
