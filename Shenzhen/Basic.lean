@@ -1,6 +1,4 @@
--- import Shenzhen.Board
 import Shenzhen.Compile
--- import Shenzhen.Examples
 import Shenzhen.Instruction
 import Shenzhen.Integer
 import Shenzhen.MC4000
@@ -9,48 +7,10 @@ import Shenzhen.SimpleIOData
 import Shenzhen.Util
 import Shenzhen.IOEffects
 
-structure Conns (χ : Type u) (ψ : Type v) where
-  edges : Array (List (χ × ψ)) -- each edge is `(chip, pin)`
-  nontrivial : ∀ edge ∈ edges, edge.length ≥ 2 := by decide
-  nodupChips : ∀ edge ∈ edges, List.Nodup (edge.unzip.fst) := by decide
-  disjoint : ∀ i j : Fin edges.size, i ≠ j → ∀ x ∈ edges[i], x ∉ edges[j] := by decide
-deriving Repr
-
-namespace Conns
-
-instance : Inhabited (Conns χ ψ) :=
-  ⟨#[], nofun, nofun, nofun⟩
-
-variable [DecidableEq χ] [DecidableEq ψ]
-
--- TODO: cache this result ahead of time in `Board` in a `Std.HashMap` or something
-/-- Get the index of the neighbors to `(chip, pin)`, including `(chip, pin)` itself. -/
-def edgeIdx (conns : Conns χ ψ) (chip : χ) (pin : ψ) : Option (Fin (conns.edges.size)) :=
-  conns.edges.findFinIdx? ((chip, pin) ∈ ·)
-
-def connections (conns : Conns χ ψ) (chip : χ) (pin : ψ) : List (χ × ψ) :=
-  conns.edges.find? (List.contains · (chip, pin))
-    |>.getD []
-    |>.filter (· != (chip, pin))
-
--- TODO: compute this result ahead of time
-def areConnected (conns : Conns χ ψ) : χ × ψ → χ × ψ → Bool
-| u, v => conns.edges.any fun edge => u ∈ edge && v ∈ edge
-
-end Conns
-
--- for now, just MC4000s
-structure Board where
-  {n : Nat}
-  chips : Vector MC4000 n
-  simpleIOConns : Conns (Fin n) MC4000.SimpleIO
-  xBusConns : Conns (Fin n) MC4000.XBus
-deriving Repr
-
 /-- This is the "Touch Activated Light Controller" on page `CSM_TD_100650` of the manual.
 For now (TODO), the input and output are simulated by more `MC4000`s. -/
 @[reducible]
-def lightController : Board :=
+def lightController : Board 4 :=
   let inputs : Array SimpleIOData := #[0, 0, 100, 0]
   let touch :=
     let flagsAndInstrs := inputs.flatMap fun x => #[
@@ -76,6 +36,10 @@ def lightController : Board :=
     slp 1)
   {
     chips := #v[touch, chip₁, chip₂, light],
-    simpleIOConns := { edges := #[[(0, 0), (1, 0)], [(2, 1), (3, 1)]] },
-    xBusConns := { edges := #[[(1, 1), (2, 0)]] }
+    simpleIOConns := .symmetrize fun
+      | (0, 0), (1, 0) | (2, 1), (3, 1) => true
+      | _, _ => false
+    xBusConns := .symmetrize fun
+      | ⟨1, 1⟩, ⟨2, 0⟩ => true
+      | _, _ => false
   }
