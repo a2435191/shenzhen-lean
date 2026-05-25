@@ -1,37 +1,6 @@
--- inductive Read (δ : Type u) (α : Type v)
--- | pure : α → Read δ α
--- | read (next : δ → Read δ α)
-
--- def Read.bind : Read δ α → (α → Read δ β) → Read δ β
--- | .pure a, f => f a
--- | .read next, f => .read fun d => bind (next d) f
-
--- instance : Monad (Read δ) where
---   pure := .pure
---   bind := .bind
-
--- -- Equivalent to `α × Option δ`
--- structure Write (δ : Type u) (α : Type v) where
---   pure : α
---   written : Option δ
-
--- def ReadWrite (δ : Type u) (α : Type v) :=
---   Read δ (Write δ α)
-
--- def ReadWrite.pure : α → ReadWrite δ α
--- | a => Read.pure ⟨a, none⟩
-
--- def ReadWrite.bind : ReadWrite δ α → (α → ReadWrite δ β) → ReadWrite δ β
--- | Read.pure ⟨a, _⟩, f => f a -- possibly overwrite the previous written value (if `written` was `some`)
--- | Read.read next, f => Read.read fun d => bind (next d) f
-
-
-
--- | pure : α → Write δ α
--- -- Note that `next` is not `Unit → Write δ α`
--- -- because we want there to be at most one write
--- | write (d : δ) (next : Unit → α)
--- | write (data : δ) (next : Unit → ReadWrite δ α)
+/-! An experiment I had about making write effects leaf nodes, i.e.
+  there can only be one write and it must happen at the end of the instruction's
+  effects. For now kept as reference -/
 
 inductive ReadWrite (δ : Type u) (α : Type v)
 | end (write? : Option δ) (a : α)
