@@ -508,7 +508,9 @@ def advanceTick {n : ℕ} (chips : Vector MC4000 n)
       match is.ip with
       | .none => s -- TODO I think this is right for the case where there are no instructions
       | .ofFin ip =>
-        if h : chips[i].m ≠ m then unreachable! -- TODO: prove this invariant
+        if h : chips[i].m ≠ m then
+          -- TODO: prove this invariant
+          panic! "The chip and the state disagree about the number of instructions on the chip"
         else
           -- TODO: also assert that the right flags are enabled for this instr.
           -- TODO: also assert other things about the current state
@@ -651,18 +653,7 @@ def states₁ := advance states₀
 def states₂ := advance states₁
 def states₃ := advance states₂
 
-#eval do
-  let ⟨m, fx, simpleIOOut, waitingToWrite⟩ := states₂[0]
-  println! m
-  println! repr simpleIOOut
-  println! repr waitingToWrite
-
-  match fx with
-  | .pure p => println! p
-  | .xBusWrite pin d next => println! ".xBusWrite x{pin} {d} ⋯"
-  | _ => println! "hmmm"
-
-#reduce advanceTimeUnit #v[mc₀, mc₁] simpleIOConns xBusConns states₀ 100
+#reduce advanceTimeUnit #v[mc₀, mc₁] simpleIOConns xBusConns states₀ 16
 
 
 
