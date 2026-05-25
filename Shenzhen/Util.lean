@@ -181,3 +181,10 @@ end Lean.Meta
 
 @[inline, simp] def Vector.findSome?FinIdx (xs : Vector α n) (f : Fin n → α → Option β) : Option (β × Fin n) :=
   xs.zipFinIdx.findSome? fun (a, i) => (·, i) <$> f i a
+
+theorem Vector.countP_map_le_countP
+    {v : Vector α n} {f : α → β} {p : α → Bool} {q : β → Bool}
+    (hf : ∀ a, q (f a) → p a) : (v.map f).countP q ≤ v.countP p := by
+  rw [Vector.countP_map]
+  apply Vector.countP_mono_left
+  intros; apply hf; assumption

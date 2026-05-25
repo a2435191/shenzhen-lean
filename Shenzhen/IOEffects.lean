@@ -23,6 +23,11 @@ inductive IOEffects (ξ : Type u) (ι : Type v) (α : Type x)
 /-- Wait for `n` time units. -/
 | sleep (n : Nat) (h : n ≠ 0) (next : Unit → IOEffects ξ ι α)
 
+-- TODO I would really strongly prefer that these constructors not have
+-- data-dependent effects, i.e. `next : IOEffects ξ ι (Integer → α)` instead
+-- of `Integer → IOEffects ξ ι α`. However, I don't know how to make this work with
+-- `xBusWrite` and `.simpleIOWrite`
+
 namespace IOEffects
 
 instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=

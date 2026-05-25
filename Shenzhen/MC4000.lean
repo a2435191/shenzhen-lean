@@ -4,6 +4,8 @@ import Shenzhen.SimpleIOData
 import Shenzhen.Util
 import Shenzhen.IOEffects
 import Shenzhen.Notation
+import Shenzhen.Conns
+import Shenzhen.MC.IP
 
 -- -- disable dbg_trace
 -- open Lean in
@@ -21,42 +23,6 @@ namespace MC4000
 
 inductive InternalReg | acc -- Only one register
 deriving Repr, Lean.ToExpr
-
-end MC4000
-
-namespace MC4000
-
-/-- `IP m` is the type of an instruction pointer for an `MC4000` with `m` instructions.
-  Chips can have zero instructions, so `IP m` is equivalent to `if m = 0 then Unit else Fin m`, but
-  this way we get `Repr` for free and nicer pattern-matching. -/
-inductive IP : Nat → Type
-| none : IP 0
-| ofFin : Fin m → IP m
-deriving Repr
-
-namespace IP
-
-instance : ReprAtom (IP 0) where
-
-def toFin (h : m ≠ 0) : IP m → Fin m
-| .none => False.elim (h rfl)
-| .ofFin x => x
-
-def mk' (ofNonZero : (m : Nat) → m ≠ 0 → Fin m) {m} : IP m :=
-  match m with
-  | 0 => .none
-  | k + 1 => .ofFin <| ofNonZero (k + 1) (by simp)
-
-/-- `(0 : Fin m)` unless `m = 0` -/
-def null : IP m :=
-  .mk' fun _ h => ⟨0, Nat.zero_lt_of_ne_zero h⟩
-
-instance : Inhabited (IP m) where
-  default := .null
-
-instance : Coe (Fin m) (IP m) := ⟨.ofFin⟩
-
-end IP
 
 /-- Represents the state during some instruction. While executing an instruction (possibly across multiple, in the case that we block on XBus),
   all fields stay the same -/
@@ -129,6 +95,7 @@ def modifyAcc' (f : Integer → Integer → Integer) (other : Integer) : Instruc
   fun state => { state with ip := f state.ip }
 
 end InstructionState
+end MC4000
 
 open MC4000 in
 structure MC4000 where
@@ -138,6 +105,7 @@ structure MC4000 where
   instrs : Vector (Instruction m) m
 deriving Repr
 
+namespace MC4000
 section mk'
 variable (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat InternalReg XBus SimpleIO))
 
@@ -170,31 +138,14 @@ def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat Inter
 
 end mk'
 
-/-- Find the index `i` of the next instruction **greater than** `curr` that
-  is enabled according to `flags[i]` and `cond`, looping back around from
-  `i = m - 1` to `i = 0` if necessary. `none` if no such index exists.
-  (We don't use the `IP` constructor because we want to be able to return `none`
-  for `m > 0`.) -/
-def nextIP {m} (flags : Vector ConditionalFlag m)
-    (curr : Fin m) (cond : ConditionalState m) : Option (Fin m) :=
-  let start := curr.succ' -- where we start looking
-  let foundOffset := Fin.find? fun offset =>
-    let i := offset + start
-    match flags[i] with
-    | .none => true
-    | .pos => cond.posEnabled
-    | .neg => cond.negEnabled
-    | .once => !cond.hasRun[i]
-  foundOffset <&> (· + start)
-
 /-- Advance the instruction pointer to the next enabled location (possibly wrapping around or,
   rarely, getting stuck if there are no enabled locations). Does not handle `jmp` instructions. -/
-def advanceIP (flags : Vector ConditionalFlag m)
+def advanceIP {m} (flags : Vector ConditionalFlag m)
     : InstructionState m → InstructionState m := fun is =>
     match is.ip with
     | .none => is -- TODO I think this is right for the case where there are no instructions
     | .ofFin ip =>
-      match nextIP flags ip is.cond with
+      match IP.nextIP flags ip is.cond with
       | none => is -- TODO I think this is ok because if we ever lack a next IP it'll stay that way forever (?)
       | some ip' =>
         is.setIP ip' -- just set the new IP
@@ -280,14 +231,6 @@ where
   ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
     fun is => bfx <&> (·, is)
 
-section
-
-abbrev Conns (nChips : ℕ) (connType : Type) :=
-  (Fin nChips × connType) → (Fin nChips × connType) → Bool
-
-def Conns.neighbors {n m} (conns : Conns n (Fin m)) (i : Fin n) (j : Fin m) : List (Fin n × Fin m) :=
-  (List.finRange n).product (List.finRange m)|>.filter (conns (i, j))
-
 structure State where
   m : ℕ
   instructionState : IOEffects XBus SimpleIO (InstructionState m)
@@ -319,6 +262,16 @@ def blank (m : ℕ) : State :=
   fun state => { state with waitingToWrite := Vector.set state.waitingToWrite i val }
 
 end State
+end MC4000
+
+-- for now, just MC4000s
+/-- The data in the simulation that doesn't change during execution. -/
+structure Board (n : ℕ) where
+  chips : Vector MC4000 n
+  simpleIOConns : Conns n MC4000.SimpleIO
+  xBusConns : Conns n MC4000.XBus
+
+namespace MC4000
 
 /-! ## XBus semantics
   I believe that when a chip executes an XBus read or write, the XBus pin sets a flag to
@@ -435,13 +388,6 @@ def resolveSimpleIOReads {n : ℕ}
         ⟨m, next max, simpleIOOut.set pin 0, waitingToWrite⟩
       | _ => s
 
-theorem _root_.Vector.countP_map_le_countP
-    {v : Vector α n} {f : α → β} {p : α → Bool} {q : β → Bool}
-    (hf : ∀ a, q (f a) → p a) : (v.map f).countP q ≤ v.countP p := by
-  rw [Vector.countP_map]
-  apply Vector.countP_mono_left
-  intros; apply hf; assumption
-
 theorem setMaskForPureAndSleep_count_le (s t) : (setMaskForPureAndSleep s t (n := n)).count false ≤ t.count false :=
   calc
     _ ≤ (s.zip t).countP fun (_, b) => !b := Vector.countP_map_le_countP (by grind)
@@ -495,8 +441,7 @@ theorem resolveXBusReadsAndPeeks_count_le (xc s t) : (resolveXBusReadsAndPeeks x
   The effect of running this function `n` times for large `n` should be to get all chips
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
-def advanceTick {n : ℕ} (chips : Vector MC4000 n)
-    (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus) (states : Vector State n)
+def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
     : Vector State n :=
 
   -- First, any pure states (meaning about to execute an instruction) get wrapped in `IOEffects`
@@ -508,14 +453,14 @@ def advanceTick {n : ℕ} (chips : Vector MC4000 n)
       match is.ip with
       | .none => s -- TODO I think this is right for the case where there are no instructions
       | .ofFin ip =>
-        if h : chips[i].m ≠ m then
+        if h : board.chips[i].m ≠ m then
           -- TODO: prove this invariant
           panic! "The chip and the state disagree about the number of instructions on the chip"
         else
           -- TODO: also assert that the right flags are enabled for this instr.
           -- TODO: also assert other things about the current state
 
-          let fx' := instructionEffects (chips[i].instrs[ip]) chips[i].flags (cast (by grind) is)
+          let fx' := instructionEffects (board.chips[i].instrs[ip]) board.chips[i].flags (cast (by grind) is)
           { s with instructionState := cast (by grind) fx' }
     | _ => s
 
@@ -555,7 +500,7 @@ where
   termination_by alreadyTicked.count false
   decreasing_by
     rename_i originalStates h'
-    have : alreadyTicked' = (advanceTick.step simpleIOConns xBusConns originalStates states alreadyTicked).2 :=
+    have : alreadyTicked' = (advanceTick.step board originalStates states alreadyTicked).2 :=
       by simp_all
     subst alreadyTicked'
     apply Nat.lt_of_le_of_ne ?_ (by grind)
@@ -573,10 +518,10 @@ where
     -- TODO make sure this is using the version of `states` from the beginning of the tick
     -- TODO double check that using that version is correct
     -- TODO something about sub-tick ordering? What about with simple I/O writes clearing their pin's buffer?
-    let states := resolveSimpleIOReads simpleIOConns states originalSimpleIOOuts alreadyTicked
+    let states := resolveSimpleIOReads board.simpleIOConns states originalSimpleIOOuts alreadyTicked
     let states := resolveSimpleIOWrites states alreadyTicked
 
-    let (states, alreadyTicked) := resolveXBusReadsAndPeeks xBusConns states alreadyTicked
+    let (states, alreadyTicked) := resolveXBusReadsAndPeeks board.xBusConns states alreadyTicked
 
     dbg_trace (
       match states[0]? with
@@ -605,8 +550,7 @@ def advanceTimeUnit.defaultMaxFuel : ℕ := 10_000
   If successful, the instruction pointer of any chips that have finished sleeping (remember
   that chips can sleep for multiple time units) is incremented (or set in the case of a `.jmp`).
    -/
-def advanceTimeUnit {n : ℕ} (chips : Vector MC4000 n)
-    (simpleIOConns : Conns n SimpleIO) (xBusConns : Conns n XBus)
+def advanceTimeUnit {n : ℕ} (board : Board n)
     (states : Vector State n) (fuel : ℕ := advanceTimeUnit.defaultMaxFuel) : Bool × Vector State n :=
   match fuel with
   | 0 => (false, states)
@@ -621,39 +565,39 @@ def advanceTimeUnit {n : ℕ} (chips : Vector MC4000 n)
       (true, states')
     else
       -- TODO could terminate early if no states change
-      let states' := advanceTick chips simpleIOConns xBusConns states
-      advanceTimeUnit chips simpleIOConns xBusConns states' k
-
-end
+      let states' := advanceTick board states
+      advanceTimeUnit board states' k
 
 namespace Test
 
-def mc₀ : MC4000 :=
-  .mk #v[.none, .none]
-      #v[.mov (.int 100) (.xBus 1), .slp (.int 1)]
+def board : Board 2 :=
+  let mc₀ : MC4000 :=
+    .mk #v[.none, .none]
+        #v[.mov (.int 100) (.xBus 1), .slp (.int 1)]
+  let mc₁ : MC4000 :=
+    .mk (Vector.replicate _ .none)
+      #v[
+        .nop,
+        .mov (.xBus 0) (.internal .acc),
+        .slp (.int 1)]
 
-def mc₁ : MC4000 :=
-  .mk (Vector.replicate _ .none)
-    #v[
-      .nop,
-      .mov (.xBus 0) (.internal .acc),
-      .slp (.int 1)]
+  let simpleIOConns : Conns 2 SimpleIO :=
+    fun _ _ => false
 
-def simpleIOConns : Conns 2 SimpleIO :=
-  fun _ _ => false
+  let xBusConns : Conns 2 XBus :=
+    fun | (0, 1), (1, 0) | (1, 0), (0, 1) => true | _, _ => false
 
-def xBusConns : Conns 2 XBus :=
-  fun | (0, 1), (1, 0) | (1, 0), (0, 1) => true | _, _ => false
+  { chips := #v[mc₀, mc₁], simpleIOConns, xBusConns }
 
 def advance :=
-  advanceTick #v[mc₀, mc₁] simpleIOConns xBusConns
+  advanceTick board
 
-def states₀ : Vector State 2 := #v[.blank mc₀.m, .blank mc₁.m]
+def states₀ : Vector State 2 := #v[.blank board.chips[0].m, .blank board.chips[1].m]
 def states₁ := advance states₀
 def states₂ := advance states₁
 def states₃ := advance states₂
 
-#reduce advanceTimeUnit #v[mc₀, mc₁] simpleIOConns xBusConns states₀ 16
+#reduce advanceTimeUnit board states₀ 16
 
 
 
