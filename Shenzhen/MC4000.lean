@@ -512,8 +512,10 @@ where
   -- TODO: make the code match this description. I don't think we need to pass around `alreadyTicked`
   -- to the called functions. it should be much cleaner to do it in here (?)
   /-- One step within processing a tick. For every state that hasn't already been ticked, update
-    it according to the outermost constructor. -/
+    it according to the outermost constructor, i.e. try to resolve simple I/O and XBus as far as possible
+    until getting blocked by XBus or reaching `.sleep` or `.pure`. -/
   step (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
+    -- TODO probably don't need this since the below functions don't do anything more to `.pure` and `.sleep` states
     let alreadyTicked := setMaskForPureAndSleep states alreadyTicked
 
     -- TODO double check that using the simpleIOOuts from the start of this tick is correct
@@ -522,8 +524,8 @@ where
     let states := resolveSimpleIOWrites states alreadyTicked
 
     let (states, alreadyTicked) := resolveXBusReadsAndPeeks board.xBusConns states alreadyTicked
-
     let states := setXBusWriteFlags states
+
     (states, alreadyTicked)
     -- TODO does order matter here?
 
