@@ -516,8 +516,7 @@ where
   step (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
     let alreadyTicked := setMaskForPureAndSleep states alreadyTicked
 
-    -- TODO make sure this is using the version of `states` from the beginning of the tick
-    -- TODO double check that using that version is correct
+    -- TODO double check that using the simpleIOOuts from the start of this tick is correct
     -- TODO something about sub-tick ordering? What about with simple I/O writes clearing their pin's buffer?
     let states := resolveSimpleIOReads board.simpleIOConns states originalSimpleIOOuts alreadyTicked
     let states := resolveSimpleIOWrites states alreadyTicked
