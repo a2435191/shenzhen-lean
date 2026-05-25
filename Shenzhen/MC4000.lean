@@ -143,12 +143,14 @@ def advanceIP {m} (flags : Vector ConditionalFlag m)
       | some ip' =>
         is.setIP ip' -- just set the new IP
 
+/-- `IOEffects m α` wraps `α` and mutable `InstructionState m` state inside `IOEffects`.
+  Equal to `InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m)`. -/
 @[reducible]
 private def Effects (m : ℕ) : Type → Type :=
   StateT (InstructionState m) (IOEffects XBus SimpleIO)
 
-/-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks). Does not
-  increment the instruction pointer, but *does* set it on `.jmp` instructions. -/
+/-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks).
+  The effects include advancing the instruction pointer. -/
 def instructionEffects {m} (instr : Instruction m) (flags : Vector ConditionalFlag m)
     : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) :=
   let res := impl *> setNextIP
@@ -203,6 +205,7 @@ where
       let d₂ ← readRegOrInt ri₂
       modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
 
+  /-- Read an integer from `ri` (inside `Effects m`) -/
   readRegOrInt (ri : RegOrInt) : Effects m Integer := do
     match ri with
     | .int n => return n
@@ -211,10 +214,13 @@ where
     | .xBus x => do ret (.xBusRead x pure)
     | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
 
+  /-- Set the `acc` register to `f acc (←readRegOrInt ri)`. -/
   doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : Effects m Unit := do
     let d ← readRegOrInt ri
     modify (.modifyAcc' f d)
 
+  /-- Run the comparison function `f` with `ri₁` and `ri₂` as inputs, then
+    update the conditional flags accordingly. -/
   doCmp (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → Bool) : Effects m Unit := do
     let d₁ ← readRegOrInt ri₁
     let d₂ ← readRegOrInt ri₂
@@ -224,8 +230,13 @@ where
   ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
     fun is => bfx <&> (·, is)
 
+/-- The state of an executing chip -/
 structure State where
+  -- Constant. Not a type parameter because then we'd just have to do `(m : ℕ) × State m` inside
+  -- `Vector`s below anyway
   m : ℕ
+
+  -- Only changes at instruction boundaries
   instructionState : IOEffects XBus SimpleIO (InstructionState m)
 
   -- now, the state that can be mutated between ticks inside an instruction
@@ -240,7 +251,9 @@ structure State where
   simpleIOOut : Vector SimpleIOData numSimpleIOPins
   -- TODO do I also need to keep track of a boolean flag for each simple I/O pin here?
 
-  -- See below
+  /-- See the documentation comments in `MC4000.lean`. This represents whether each
+    XBus pin is ready to write. This may change between CPU cycles inside an instruction because
+    XBus writes set it and XBus reads clear it. -/
   waitingToWrite : Vector Bool numXBusPins
 deriving Inhabited
 
@@ -290,9 +303,10 @@ namespace MC4000
 -/
 
 /-- Try to resolve the outermost XBus reads and peeks with writes for which the
-  waiting-to-write flag has been set and `alreadyTicked` is `false`. If there are multiple such writers,
-  the order is unspecified (but really left-to-right in `states`).
-  `alreadyTicked[i] = true` indicates that `states[i]` has already been ticked and should be ignored. -/
+  waiting-to-write flag has been set and `alreadyTicked` is `false`.
+  `alreadyTicked[i] = true` indicates that `states[i]` has already been ticked and should be ignored.
+
+  If there are multiple writers enabled as such, the order is unspecified (but really left-to-right in `states`). -/
 def resolveXBusReadsAndPeeks {n : ℕ} (xBusConns : Conns n XBus)
     (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
   (List.finRange n).foldl (init := (states, alreadyTicked)) fun (states, alreadyTicked) i =>
@@ -378,6 +392,11 @@ def resolveSimpleIOReads {n : ℕ}
         ⟨m, next max, simpleIOOut.set pin 0, waitingToWrite⟩
       | _ => s
 
+section
+
+/-! Theorems to help help prove that `advanceTick` (specifically `stepUntilDone`) terminates. We eventually show below that
+  `step` never increases the number of `false`s in `alreadyTicked`. -/
+
 theorem setMaskForPureAndSleep_count_le (s t) : (setMaskForPureAndSleep s t (n := n)).count false ≤ t.count false :=
   calc
     _ ≤ (s.zip t).countP fun (_, b) => !b := Vector.countP_map_le_countP (by grind)
@@ -396,6 +415,8 @@ theorem resolveXBusReadsAndPeeks_count_le (xc s t) : (resolveXBusReadsAndPeeks x
     unfold motive
     repeat' split
     all_goals first | assumption | grind [Vector.count_set]
+
+end
 
 /-! ## What happens in a tick
   In a tick (CPU cycle), a chip does exactly one of the following:
