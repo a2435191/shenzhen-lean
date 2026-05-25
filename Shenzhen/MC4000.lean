@@ -264,6 +264,9 @@ structure Board (n : ℕ) where
   simpleIOConns : Conns n MC4000.SimpleIO
   xBusConns : Conns n MC4000.XBus
 
+def Board.initialStates (b : Board n) : Vector MC4000.State n :=
+  b.chips.map fun { m, .. } => .blank m
+
 namespace MC4000
 
 /-! ## XBus semantics
@@ -561,7 +564,7 @@ def board : Board 2 :=
 def advance :=
   advanceTick board
 
-def states₀ : Vector State 2 := #v[.blank board.chips[0].m, .blank board.chips[1].m]
+def states₀ : Vector State 2 := board.initialStates
 def states₁ := advance states₀
 def states₂ := advance states₁
 def states₃ := advance states₂

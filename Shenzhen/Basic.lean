@@ -43,3 +43,16 @@ def lightController : Board 4 :=
       | ⟨1, 1⟩, ⟨2, 0⟩ => true
       | _, _ => false
   }
+
+def rep (n : ℕ) (f : α → α) : α → α :=
+  match n with
+  | 0 => id
+  | k + 1 => rep k f ∘ f
+
+def init :=
+  lightController.initialStates
+
+set_option maxRecDepth 5000 in
+#reduce rep 8 (MC4000.advanceTick lightController) init
+
+#reduce MC4000.advanceTimeUnit lightController init 50
