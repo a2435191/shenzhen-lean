@@ -1,2 +1,7 @@
 /.lake
 .DS_Store
+
+# Exclude docs database since it's so large
+/docbuild/.lake/build/api-docs.db
+/docbuild/.lake/build/api-docs.db-shm
+/docbuild/.lake/build/api-docs.db-wal
