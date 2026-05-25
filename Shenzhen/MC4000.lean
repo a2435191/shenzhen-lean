@@ -7,13 +7,6 @@ import Shenzhen.Notation
 import Shenzhen.Conns
 import Shenzhen.MC.IP
 
--- -- disable dbg_trace
--- open Lean in
--- @[macro Lean.Parser.Term.dbgTrace] def expandDbgTraceOverride : Macro
---   | `(dbg_trace $_arg:interpolatedStr; $body) => `($body)
---   | `(dbg_trace $_arg:term; $body)            => `($body)
---   | _                                         => Macro.throwUnsupported
-
 namespace MC4000
 
 @[reducible] def numXBusPins := 2
@@ -306,9 +299,6 @@ def resolveXBusReadsAndPeeks {n : ℕ} (xBusConns : Conns n XBus)
       | .xBusRead pin next =>
         match findWrite? (i, pin) states alreadyTicked with
         | .some ⟨j, pin', d, next'⟩ =>
-          dbg_trace "jackpot: reader {(i, pin)} found writer {(j, pin')} writing {d}"
-          dbg_trace "next d = {match next d with | .pure a => repr a | _ => "⋯"}"
-          dbg_trace "next' () = {match next' () with | .pure a => repr a | _ => "⋯"}"
           let states' := states
             |>.set i { states[i] with instructionState := next d }
             -- TODO: somewhere else in some comment I say that this is tolerant of multiple writes, idt that's true since we clear `waitingToWrite[pin]` here? Think about this
@@ -335,13 +325,10 @@ where
         match h : states[j] with
         | ⟨m, .xBusWrite pin d next, _, waitingToWrite⟩ =>
           if waitingToWrite[pin] && xBusConns whichPin (j, pin) then
-            dbg_trace "jackpot for chip #{whichPin.1}, pin x{whichPin.2} at states[{j}]"
             some ⟨j, pin, d, cast (by simp [h]) next⟩
-          else
-            dbg_trace "states[{j}] waiting to write = {waitingToWrite[pin]}, connected = {xBusConns whichPin (j, pin)}"
-            none
-        | _ => dbg_trace "states[{j}] not an xbus write"; none
-      else dbg_trace "{j} already ticked"; none
+          else none
+        | _ => none
+      else none
 
 /-- Each chip writing XBus sets its own `waiting-to-write` flag. -/
 def setXBusWriteFlags {n : ℕ} (states : Vector State n) : Vector State n :=
@@ -405,7 +392,7 @@ theorem resolveXBusReadsAndPeeks_count_le (xc s t) : (resolveXBusReadsAndPeeks x
   · intro (s, t') (h : t'.count false ≤ t.count false) i _
     unfold motive
     repeat' split
-    all_goals first | assumption | grind [Vector.count_set, dbgTrace]
+    all_goals first | assumption | grind [Vector.count_set]
 
 /-! ## What happens in a tick
   In a tick (CPU cycle), a chip does exactly one of the following:
@@ -466,13 +453,6 @@ def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
 
   -- See `stepUntilDone`
   let states := stepUntilDone states (Vector.replicate n false)
-  dbg_trace "here"
-  (match states[0]? with
-  | none => dbgTrace "bleh"
-  | some s =>
-    match s.instructionState with
-    | .pure a => dbgTrace s!".pure {a}"
-    | _ => dbgTrace "hmmmmmm") fun () =>
   -- TODO I think we can use `alreadyTicked` to diagnose programs that never sleep
 
 
@@ -491,11 +471,8 @@ where
   stepUntilDone (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n :=
     match _h: step states alreadyTicked with -- this instead of `let` for the decreasing proof
     | (states', alreadyTicked') =>
-      dbg_trace "stepUntilDone: alreadyTicked = {alreadyTicked.toArray}, alreadyTicked' = {alreadyTicked'.toArray}"
       -- TODO: this conditional is equivalent to alreadyTicked' == alreadyTicked, so prove it and simplify this expression
-      if alreadyTicked'.count false == alreadyTicked.count false then
-        dbg_trace "done!"
-        states'
+      if alreadyTicked'.count false == alreadyTicked.count false then states'
       else stepUntilDone states' alreadyTicked' -- run until we don't make progress
   termination_by alreadyTicked.count false
   decreasing_by
@@ -523,15 +500,7 @@ where
 
     let (states, alreadyTicked) := resolveXBusReadsAndPeeks board.xBusConns states alreadyTicked
 
-    dbg_trace (
-      match states[0]? with
-      | none => "bleh"
-      | some s =>
-        match s.instructionState with
-        | .pure a => s!".pure {a}"
-        | _ => "hmmmmmm2")
     let states := setXBusWriteFlags states
-    dbg_trace "step complete"
     (states, alreadyTicked)
     -- TODO does order matter here?
 
