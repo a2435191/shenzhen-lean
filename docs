@@ -1,0 +1,11 @@
+#!/bin/zsh
+
+# Script to build the docs and launch them locally. If the lean version of `Shenzhen` is updated, need to tweak
+# `rev` in `docbuild/lakefile.toml` and rebuild
+
+cd docbuild
+lake build Shenzhen:docs
+
+python3 -m http.server &
+open .lake/build/doc/index.html
+wait
