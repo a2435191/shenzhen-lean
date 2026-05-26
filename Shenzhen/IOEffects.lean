@@ -88,14 +88,16 @@ instance : LawfulMonad (IOEffects ξ ι) where
 
 end
 
+/-- In `sleep` or `xBusPoll` state -/
 abbrev isSleep : IOEffects ξ ι α → Bool
-| .sleep .. => true
+| .sleep .. | .xBusPoll .. => true
 | _ => false
 
-def sleepOne (fx : IOEffects ξ ι α) (h : fx.isSleep = true) : IOEffects ξ ι α :=
+/-- Advance `.sleep` states by one time unit. Leave `.xBusPoll` states alone. -/
+def advanceSleep (fx : IOEffects ξ ι α) (h : fx.isSleep = true) : IOEffects ξ ι α :=
   match fx with
+  | .xBusPoll .. => fx
   | .sleep 1 _ next => next ()
   | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
-
 
 end IOEffects

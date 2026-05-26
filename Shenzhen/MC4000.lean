@@ -535,7 +535,8 @@ where
 def advanceTimeUnit.defaultMaxFuel : ℕ := 10_000
 
 /-- Advance one time unit across many interconnected chips. This can only happen
-  if every chip is in the `IOEffects.sleep` state (or empty, with no instructions TODO check this).
+  if every chip is in the `IOEffects.sleep` state or `IOEffects.xBusPoll` (or empty, with no instructions TODO check this).
+  `.sleep` corresponds to the `slp` instruction, and `.xBusPoll` corresponds to the `.slx` instruction.
 
   Until all chips are empty, we call `advanceTick`.
   Sometimes chips *never* sleep, so `fuel` serves as an upper bound on the number of iterations.
@@ -555,7 +556,7 @@ def advanceTimeUnit {n : ℕ} (board : Board n)
       let states' := states
         |>.attachWith (fun s => s.instructionState.isSleep) (Vector.all_eq_true'.mp h)
         |>.map fun ⟨s, hs⟩ =>
-          { s with instructionState := s.instructionState.sleepOne hs }
+          { s with instructionState := s.instructionState.advanceSleep hs }
       (true, states')
     else
       -- TODO could terminate early if no states change
