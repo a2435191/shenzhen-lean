@@ -2,6 +2,7 @@
   there can only be one write and it must happen at the end of the instruction's
   effects. For now kept as reference -/
 
+-- `δ`: type of data, like `Integer` or `SimpleIOData`
 inductive ReadWrite (δ : Type u) (α : Type v)
 | end (write? : Option δ) (a : α)
 | read (next : δ → ReadWrite δ α)
