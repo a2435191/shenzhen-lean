@@ -4,22 +4,20 @@
 
 -- `δ`: type of data, like `Integer` or `SimpleIOData`
 inductive ReadWrite (δ : Type u) (α : Type v)
-| end (write? : Option δ) (a : α)
+| pure (a : α)
+| write (d : δ) (a : α)
 | read (next : δ → ReadWrite δ α)
 
 namespace ReadWrite
 
-def pure : α → ReadWrite δ α
-| a => .end none a
-
 def writeIfNotAlreadyWritten (toWrite : δ) : ReadWrite δ α → ReadWrite δ α
-| .end none a => .end (some toWrite) a
-| .end (some written) a => .end (some written) a
+| .pure a => .write toWrite a
+| .write written a => .write written a
 | .read next => .read fun toRead => writeIfNotAlreadyWritten toWrite (next toRead)
 
 def bind : ReadWrite δ α → (α → ReadWrite δ β) → ReadWrite δ β
-| .end none a, f => f a
-| .end (some d) a, f => writeIfNotAlreadyWritten d (f a)
+| .pure a, f => f a
+| .write d a, f => writeIfNotAlreadyWritten d (f a)
 | .read next, f => .read fun toRead => bind (next toRead) f
 
 instance : Monad (ReadWrite δ) where
@@ -30,7 +28,7 @@ instance : Monad (ReadWrite δ) where
 theorem writeIfNotAlreadyWritten_idempotent {x : ReadWrite δ α}
     : writeIfNotAlreadyWritten d' (writeIfNotAlreadyWritten d x) = writeIfNotAlreadyWritten d x := by
   match x with
-  | .end none a | .end (some d) a => rfl
+  | .pure a | .write d a => rfl
   | .read next =>
     simp [writeIfNotAlreadyWritten]
     funext toRead
@@ -39,8 +37,8 @@ theorem writeIfNotAlreadyWritten_idempotent {x : ReadWrite δ α}
 theorem writeIfNotAlreadyWritten_bind_assoc {x : ReadWrite δ α} {f : α → ReadWrite δ β}
     : writeIfNotAlreadyWritten toWrite x >>= f = writeIfNotAlreadyWritten toWrite (x >>= f) :=
   match x with
-  | .end none a => rfl
-  | .end (some d) a => by
+  | .pure a => rfl
+  | .write d a => by
     simp [Bind.bind, ReadWrite.bind, writeIfNotAlreadyWritten]
     symm
     exact writeIfNotAlreadyWritten_idempotent
@@ -53,7 +51,7 @@ instance : LawfulMonad (ReadWrite δ) :=
   LawfulMonad.mk' _ @id_map @pure_bind @bind_assoc
 where
   id_map {α}
-  | .end none a | .end (some d) a => rfl
+  | .pure a | .write d a => rfl
   | .read next => by
     simp [Functor.map, ReadWrite.bind]
     funext d
@@ -61,8 +59,8 @@ where
   pure_bind {α β} a f := rfl
   bind_assoc {α β γ} x f g :=
     match x with
-    | .end none a => rfl
-    | .end (some d) a => by
+    | .pure a => rfl
+    | .write d a => by
       simp [Bind.bind, bind]
       exact writeIfNotAlreadyWritten_bind_assoc
     | .read next => by
