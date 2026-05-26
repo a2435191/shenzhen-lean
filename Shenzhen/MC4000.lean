@@ -591,6 +591,7 @@ def states₁ := advance states₀
 def states₂ := advance states₁
 def states₃ := advance states₂
 
+#guard_msgs(drop info) in
 #reduce advanceTimeUnit board states₀ 16
 
 

@@ -52,7 +52,9 @@ def rep (n : ℕ) (f : α → α) : α → α :=
 def init :=
   lightController.initialStates
 
+#guard_msgs(drop info) in
 set_option maxRecDepth 5000 in
 #reduce rep 8 (MC4000.advanceTick lightController) init
 
+#guard_msgs(drop info) in
 #reduce MC4000.advanceTimeUnit lightController init 50
