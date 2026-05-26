@@ -12,12 +12,6 @@ namespace ReadWrite
 def pure : α → ReadWrite δ α
 | a => .end none a
 
-def write : δ → α → ReadWrite δ α
-| d, a => .end (some d) a
-
-def write' : δ → ReadWrite δ Unit
-| d => write d ()
-
 def writeIfNotAlreadyWritten (toWrite : δ) : ReadWrite δ α → ReadWrite δ α
 | .end none a => .end (some toWrite) a
 | .end (some written) a => .end (some written) a
