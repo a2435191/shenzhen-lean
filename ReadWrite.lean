@@ -25,17 +25,19 @@ theorem sizeOf_map_eq_sizeOf {f : α → β} {x : ReadWrite δ α} : sizeOf (map
 def _root_.Function.swap (f : α → β → γ) : β → α → γ :=
   fun b a => f a b
 
-def writeIfNotAlreadyWritten (toWrite : δ) : ReadWrite δ α → ReadWrite δ α
+/-- `deepWrite d x` writes `d` at the terminal constructor of `x`, as long
+  as the terminal constructor is `pure`. -/
+def tryDeepWrite (toWrite : δ) : ReadWrite δ α → ReadWrite δ α
   | .pure a => .write toWrite a
   | .write written a => .write written a
   | .sleep n h => .sleep n h
-  | .read next => .read (writeIfNotAlreadyWritten toWrite next)
+  | .read next => .read (tryDeepWrite toWrite next)
 
 -- Get `f ← mf`, then apply it to `a ← (ma ())`. If `f` and `x` both write, keep the write from `f`.
 def seq (mf : ReadWrite δ (α → β)) (ma : Unit → ReadWrite δ α) : ReadWrite δ β :=
   match mf with
   | .pure f => map f (ma ())
-  | .write d f => writeIfNotAlreadyWritten d (map f (ma ()))
+  | .write d f => tryDeepWrite d (map f (ma ()))
   | .sleep n h => .sleep n h
   | .read nextF => .read (seq (map Function.swap nextF) ma)
 termination_by sizeOf mf
@@ -46,18 +48,18 @@ instance : Applicative (ReadWrite δ) where
   seq := seq
 
 theorem map_writeIfNotAlreadyWritten {d : δ} {f : α → β} {x : ReadWrite δ α}
-    : map f (writeIfNotAlreadyWritten d x) = writeIfNotAlreadyWritten d (map f x) := by
+    : map f (tryDeepWrite d x) = tryDeepWrite d (map f x) := by
   cases x <;> try rfl
-  simp only [writeIfNotAlreadyWritten, map, read.injEq]
+  simp only [tryDeepWrite, map, read.injEq]
   apply map_writeIfNotAlreadyWritten
 
 /-- The fundamental property of `writeIfNotAlreadyWritten`. -/
 theorem writeIfNotAlreadyWritten_idempotent {x : ReadWrite δ α}
-    : writeIfNotAlreadyWritten d' (writeIfNotAlreadyWritten d x) = writeIfNotAlreadyWritten d x := by
+    : tryDeepWrite d' (tryDeepWrite d x) = tryDeepWrite d x := by
   match x with
   | .pure _ | .write .. | .sleep .. => rfl
   | .read next =>
-    simp only [writeIfNotAlreadyWritten, read.injEq]
+    simp only [tryDeepWrite, read.injEq]
     apply writeIfNotAlreadyWritten_idempotent
 
 variable {α β δ}
@@ -83,8 +85,8 @@ theorem seq_pure {α β} (g : ReadWrite δ (α → β)) (a : α)
     : seq g (fun _ => pure a) = map (· a) g := by
   cases g
   · simp [seq, map]
-  · simp [seq, map, writeIfNotAlreadyWritten]
-  · simp [seq, map]
+  · simp [seq, map, tryDeepWrite]
+  · simp only [seq, map]
   · rename_i next
     simp only [seq, map]
     congr 1
@@ -92,12 +94,12 @@ theorem seq_pure {α β} (g : ReadWrite δ (α → β)) (a : α)
     rfl
 
 theorem seq_writeIfNotAlreadyWritten {α β} {d : δ} {g : ReadWrite δ (α → β)} {x : ReadWrite δ α}
-    : seq (writeIfNotAlreadyWritten d g) (fun _ => x) = writeIfNotAlreadyWritten d (seq g fun _ => x) := by
+    : seq (tryDeepWrite d g) (fun _ => x) = tryDeepWrite d (seq g fun _ => x) := by
   cases g
-  · simp [writeIfNotAlreadyWritten, seq]
-  · simp [writeIfNotAlreadyWritten, seq, writeIfNotAlreadyWritten_idempotent]
-  · simp [writeIfNotAlreadyWritten, seq]
-  · simp only [writeIfNotAlreadyWritten, seq]
+  · simp [tryDeepWrite, seq]
+  · simp [tryDeepWrite, seq, writeIfNotAlreadyWritten_idempotent]
+  · simp [tryDeepWrite, seq]
+  · simp only [tryDeepWrite, seq]
     rw [map_writeIfNotAlreadyWritten, seq_writeIfNotAlreadyWritten]
 
 theorem map_seq_r {α β γ} {f : β → γ} {g : ReadWrite δ (α → β)} {a : ReadWrite δ α}
