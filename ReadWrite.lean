@@ -7,7 +7,7 @@
 inductive ReadWrite (δ : Type) : Type v → Type _
 | pure (a : α)                        : ReadWrite δ α
 | write (d : δ) (a : α)               : ReadWrite δ α
-| sleep (n : Nat) (h : n ≠ 0) (a : α) : ReadWrite δ α -- We probably don't need the `(a : α)` state for sleeps but it's a nice example
+| sleep (n : Nat) (h : n ≠ 0) (a : α) : ReadWrite δ α
 | read (next : ReadWrite δ (δ → α))   : ReadWrite δ α
 
 namespace ReadWrite
