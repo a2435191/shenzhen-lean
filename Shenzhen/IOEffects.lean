@@ -41,9 +41,6 @@ namespace IOEffects
 instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
   ⟨pure default⟩
 
-instance : Pure (IOEffects ξ ι) where
-  pure := .pure
-
 @[simp]
 def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
   | .pure a => .pure (f a)
