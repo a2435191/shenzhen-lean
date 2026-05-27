@@ -2,27 +2,44 @@
   there can only be one write and it must happen at the end of the instruction's
   effects. For now kept as reference -/
 
+-- `ReadWrite δ α`
 -- `δ`: type of data, like `Integer` or `SimpleIOData`
-inductive ReadWrite (δ : Type u) (α : Type v)
-| pure (a : α)
-| write (d : δ) (a : α)
-| read (next : δ → ReadWrite δ α)
+inductive ReadWrite (δ : Type) : Type v → Type _
+| pure (a : α)                      : ReadWrite δ α
+| write (d : δ) (a : α)             : ReadWrite δ α
+| read (next : ReadWrite δ (δ → α)) : ReadWrite δ α
 
 namespace ReadWrite
 
+def map (f : α → β) : ReadWrite δ α → ReadWrite δ β
+  | .pure a => .pure (f a)
+  | .write d a => .write d (f a)
+  | .read next => .read <| map (f ∘ ·) next
+
+@[simp]
+theorem sizeOf_map_eq_sizeOf {f : α → β} {x : ReadWrite δ α} : sizeOf (map f x) = sizeOf x := by
+  induction x generalizing β <;> simp_all [map]
+
+def _root_.Function.swap (f : α → β → γ) : β → α → γ :=
+  fun b a => f a b
+
 def writeIfNotAlreadyWritten (toWrite : δ) : ReadWrite δ α → ReadWrite δ α
-| .pure a => .write toWrite a
-| .write written a => .write written a
-| .read next => .read fun toRead => writeIfNotAlreadyWritten toWrite (next toRead)
+  | .pure a => .write toWrite a
+  | .write written a => .write written a
+  | .read next => .read (writeIfNotAlreadyWritten toWrite next)
 
-def bind : ReadWrite δ α → (α → ReadWrite δ β) → ReadWrite δ β
-| .pure a, f => f a
-| .write d a, f => writeIfNotAlreadyWritten d (f a)
-| .read next, f => .read fun toRead => bind (next toRead) f
+-- Get `f ← mf`, then apply it to `a ← (ma ())`. If `f` and `x` both write, keep the write from `f`.
+def seq (mf : ReadWrite δ (α → β)) (ma : Unit → ReadWrite δ α) : ReadWrite δ β :=
+  match mf with
+  | .pure f => map f (ma ())
+  | .write d f => writeIfNotAlreadyWritten d (map f (ma ()))
+  | .read nextF => .read (seq (map Function.swap nextF) ma)
+termination_by sizeOf mf
 
-instance : Monad (ReadWrite δ) where
-  pure := .pure
-  bind := .bind
+instance : Applicative (ReadWrite δ) where
+  pure := pure
+  map := map
+  seq := seq
 
 /-- The fundamental property of `writeIfNotAlreadyWritten`. -/
 theorem writeIfNotAlreadyWritten_idempotent {x : ReadWrite δ α}
@@ -30,40 +47,15 @@ theorem writeIfNotAlreadyWritten_idempotent {x : ReadWrite δ α}
   match x with
   | .pure a | .write d a => rfl
   | .read next =>
-    simp [writeIfNotAlreadyWritten]
-    funext toRead
+    simp only [writeIfNotAlreadyWritten, read.injEq]
     apply writeIfNotAlreadyWritten_idempotent
 
-theorem writeIfNotAlreadyWritten_bind_assoc {x : ReadWrite δ α} {f : α → ReadWrite δ β}
-    : writeIfNotAlreadyWritten toWrite x >>= f = writeIfNotAlreadyWritten toWrite (x >>= f) :=
-  match x with
-  | .pure a => rfl
-  | .write d a => by
-    simp [Bind.bind, ReadWrite.bind, writeIfNotAlreadyWritten]
-    symm
-    exact writeIfNotAlreadyWritten_idempotent
-  | .read next => by
-    simp [Bind.bind, ReadWrite.bind, writeIfNotAlreadyWritten]
-    funext toRead
-    apply writeIfNotAlreadyWritten_bind_assoc
-
-instance : LawfulMonad (ReadWrite δ) :=
-  LawfulMonad.mk' _ @id_map @pure_bind @bind_assoc
-where
-  id_map {α}
-  | .pure a | .write d a => rfl
-  | .read next => by
-    simp [Functor.map, ReadWrite.bind]
-    funext d
-    apply id_map
-  pure_bind {α β} a f := rfl
-  bind_assoc {α β γ} x f g :=
-    match x with
-    | .pure a => rfl
-    | .write d a => by
-      simp [Bind.bind, bind]
-      exact writeIfNotAlreadyWritten_bind_assoc
-    | .read next => by
-      simp [Bind.bind, ReadWrite.bind]
-      funext toRead
-      apply bind_assoc
+instance : LawfulApplicative (ReadWrite δ) where
+  map_const := rfl
+  id_map := sorry
+  seqLeft_eq a b := rfl
+  seqRight_eq a b := rfl
+  pure_seq := sorry
+  map_pure := sorry
+  seq_pure := sorry
+  seq_assoc := sorry
