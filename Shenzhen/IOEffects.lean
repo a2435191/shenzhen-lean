@@ -39,17 +39,17 @@ inductive IOEffects (ξ : Type u) (ι : Type v) : Type x → Type _
 namespace IOEffects
 
 instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
-  ⟨pure default⟩
+  ⟨.pure default⟩
 
 @[simp]
 def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
   | .pure a => .pure (f a)
   | .xBusRead p next => .xBusRead p (map (f ∘ ·) next)         -- recurse
-  | .xBusWrite p d next => .xBusWrite p d (f next)
-  | .xBusPoll p next => .xBusPoll p (f next)
+  | .xBusWrite p d a => .xBusWrite p d (f a)
+  | .xBusPoll p a => .xBusPoll p (f a)
   | .simpleIORead p next => .simpleIORead p (map (f ∘ ·) next) -- recurse
-  | .simpleIOWrite p d next => .simpleIOWrite p d (f next)
-  | .sleep n h next => .sleep n h (f next)
+  | .simpleIOWrite p d a => .simpleIOWrite p d (f a)
+  | .sleep n h a => .sleep n h (f a)
 
 /-! Needed for proof of termination of `seq` below -/
 @[simp]
