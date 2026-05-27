@@ -25,28 +25,18 @@ theorem sizeOf_map_eq_sizeOf {f : α → β} {x : ReadWrite δ α} : sizeOf (map
 def _root_.Function.swap (f : α → β → γ) : β → α → γ :=
   fun b a => f a b
 
-/-- `deepWrite d x` writes `d` at the terminal constructor of `x`, as long
-  as the terminal constructor is `pure`. -/
-def tryDeepWrite (toWrite : δ) : ReadWrite δ α → ReadWrite δ α
-  | .pure a => .write toWrite a
-  | .write written a => .write written a
-  | .sleep n h a => .sleep n h a
-  | .read next => .read (tryDeepWrite toWrite next)
-
-/-- Like `tryDeepWrite` but for `sleep`. "deep" as in deepest (i.e. terminal) constructor, not
-  as in "deep sleep" -/
-def tryDeepSleep (n : Nat) (h : n ≠ 0) : ReadWrite δ α → ReadWrite δ α
-  | .pure a => .sleep n h a
-  | .write written a => .write written a
-  | .sleep n h a => .sleep n h a -- We can't add the `n`s or anything without losing the lawful property
-  | .read next => .read (tryDeepSleep n h next)
+/-- Apply the terminal constructor `ofPure` to states that have `.pure` as their terminal constructor. -/
+def tryDeep (ofPure : {τ : Type u} → τ → ReadWrite δ τ) : ReadWrite δ α → ReadWrite δ α
+  | .pure a => ofPure a
+  | .read next => .read (tryDeep ofPure next)
+  | other => other
 
 -- Get `f ← mf`, then apply it to `a ← (ma ())`. If `f` and `x` both write, keep the write from `f`.
 def seq (mf : ReadWrite δ (α → β)) (ma : Unit → ReadWrite δ α) : ReadWrite δ β :=
   match mf with
   | .pure f => map f (ma ())
-  | .write d f => tryDeepWrite d (map f (ma ()))
-  | .sleep n h f => tryDeepSleep n h (map f (ma ()))
+  | .write d f => tryDeep (.write d) (map f (ma ()))
+  | .sleep n h f => tryDeep (.sleep n h) (map f (ma ()))
   | .read nextF => .read (seq (map Function.swap nextF) ma)
 termination_by sizeOf mf
 
@@ -55,28 +45,52 @@ instance : Applicative (ReadWrite δ) where
   map := map
   seq := seq
 
-theorem map_tryDeepWrite {d : δ} {f : α → β} {x : ReadWrite δ α}
-    : map f (tryDeepWrite d x) = tryDeepWrite d (map f x) := by
-  cases x <;> try rfl
-  simp only [tryDeepWrite, map, read.injEq]
-  apply map_tryDeepWrite
+section
 
-theorem map_tryDeepSleep {f : α → β} {x : ReadWrite δ α}
-    : map f (tryDeepSleep n h x) = tryDeepSleep n h (map f x) := by
-  cases x <;> try rfl
-  simp only [tryDeepSleep, map, read.injEq]
-  apply map_tryDeepSleep
+variable {α β : Type u} {f : α → β} {ofPure ofPure' : ∀ {τ : Type u}, τ → ReadWrite δ τ} {x : ReadWrite δ α}
 
-/-- The fundamental property of `tryDeepWrite`. -/
-theorem tryDeepWrite_idempotent {x : ReadWrite δ α}
-    : tryDeepWrite d' (tryDeepWrite d x) = tryDeepWrite d x := by
-  match x with
-  | .pure _ | .write .. | .sleep .. => rfl
-  | .read next =>
-    simp only [tryDeepWrite, read.injEq]
-    apply tryDeepWrite_idempotent
+theorem map_tryDeep {α : Type u} {β : Type u} {x : ReadWrite δ α} {f : α → β}
+  (map_ofPure : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
+    : map f (tryDeep ofPure x) = tryDeep ofPure (map f x) := by
+  induction x generalizing β <;> try rfl
+  · simp [tryDeep, map, map_ofPure]
+  · simp only [tryDeep, map]
+    rename_i ih
+    rw [ih]
 
-variable {α β δ}
+theorem tryDeep_of_not_pure
+    (hx : match x with | .pure _ | .read _ => False | _ => True) : tryDeep ofPure x = x := by
+  cases x <;> (try rfl) <;> contradiction
+
+theorem tryDeep_idempotent
+    (hf : ∀ {α'} (a : α'), tryDeep ofPure' (ofPure a) = ofPure a)
+    : tryDeep ofPure' (tryDeep ofPure x) = tryDeep ofPure x := by
+  induction x <;> try rfl
+  · simp only [tryDeep]
+    apply hf
+  · simp only [tryDeep]
+    rename_i next ih
+    rw [ih]
+
+theorem tryDeep_idempotent'
+    (hf : ∀ {α'} (a : α'), match ofPure a with | .pure _ | .read _ => False | _ => True)
+    : tryDeep ofPure' (tryDeep ofPure x) = tryDeep ofPure x :=
+  tryDeep_idempotent fun {α'} a => tryDeep_of_not_pure (by grind)
+
+theorem seq_tryDeep {α : Type u} {β} {g : ReadWrite δ (α → β)} {x : ReadWrite δ α}
+    (hseq_ofPure : ∀ {τ τ' : Type u} (t : ReadWrite δ τ) (h : τ → τ'), ((ofPure h).seq fun _ => t) = tryDeep ofPure (map h t))
+    (hmap : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
+    : seq (tryDeep ofPure g) (fun _ => x) = tryDeep ofPure (seq g fun _ => x) := by
+  cases g
+  · simp only [tryDeep, seq]; apply hseq_ofPure
+  · simp [tryDeep, seq, tryDeep_idempotent]
+  · simp [tryDeep, seq, tryDeep_idempotent]
+  · simp only [tryDeep, seq]
+    rw [map_tryDeep hmap, seq_tryDeep] <;> assumption
+
+end
+
+section
 
 theorem map_pure (f : α → β) (x : α) : map f (pure (δ := δ) x) = pure (f x) :=
   rfl
@@ -99,61 +113,31 @@ theorem seq_pure {α β} (g : ReadWrite δ (α → β)) (a : α)
     : seq g (fun _ => pure a) = map (· a) g := by
   cases g
   · simp [seq, map]
-  · simp [seq, map, tryDeepWrite]
-  · simp only [seq, map, tryDeepSleep]
+  · simp [seq, map, tryDeep]
+  · simp [seq, map, tryDeep]
   · rename_i next
     simp only [seq, map]
     congr 1
     rw [seq_pure, ←comp_map]
     rfl
 
-theorem tryDeepWrite_tryDeepSleep_idempotent : tryDeepWrite d (tryDeepSleep n h x) = tryDeepSleep n h x := by
-  induction x <;> simp only [tryDeepWrite, tryDeepSleep]
-  congr
-
-theorem tryDeepSleep_tryDeepWrite_idempotent : tryDeepSleep n h (tryDeepWrite d x) = tryDeepWrite d x := by
-  induction x <;> simp only [tryDeepSleep, tryDeepWrite]
-  congr
-
-theorem tryDeepSleep_idempotent : tryDeepSleep n' h' x = tryDeepSleep n h (tryDeepSleep n' h' x) := by
-  induction x <;> simp only [tryDeepSleep]
-  congr
-
-theorem seq_tryDeepWrite {α β} {d : δ} {g : ReadWrite δ (α → β)} {x : ReadWrite δ α}
-    : seq (tryDeepWrite d g) (fun _ => x) = tryDeepWrite d (seq g fun _ => x) := by
-  cases g
-  · simp [tryDeepWrite, seq]
-  · simp [tryDeepWrite, seq, tryDeepWrite_idempotent]
-  · simp [tryDeepWrite, seq, ←map_tryDeepSleep, ←map_tryDeepWrite, tryDeepWrite_tryDeepSleep_idempotent]
-  · simp only [tryDeepWrite, seq]
-    rw [map_tryDeepWrite, seq_tryDeepWrite]
-
-theorem seq_tryDeepSleep {α β} {g : ReadWrite δ (α → β)} {x : ReadWrite δ α}
-    : seq (tryDeepSleep n h g) (fun _ => x) = tryDeepSleep n h (seq g fun _ => x) := by
-  cases g
-  · simp [tryDeepSleep, seq]
-  · simp [tryDeepSleep, seq, tryDeepSleep_tryDeepWrite_idempotent]
-  · simp [tryDeepSleep, seq, ←tryDeepSleep_idempotent]
-  · simp only [tryDeepSleep, seq]
-    rw [map_tryDeepSleep, seq_tryDeepSleep]
-
-theorem map_seq_r {α β γ} {f : β → γ} {g : ReadWrite δ (α → β)} {a : ReadWrite δ α}
+theorem map_seq_r {α β γ : Type u} {f : β → γ} {g : ReadWrite δ (α → β)} {a : ReadWrite δ α}
     : map f (seq g fun _ => a) = seq (map (f ∘ ·) g) fun _ => a := by
   cases g
   · simp [pure_seq, map_pure, comp_map]
-  · simp [seq, map_tryDeepWrite, map, comp_map]
-  · simp [seq, map, map_tryDeepSleep, comp_map]
+  · simp [seq, map, map_tryDeep, comp_map]
+  · simp [seq, map, map_tryDeep, comp_map]
   · simp only [map, seq]
     congr 1
     rw [map_seq_r, ←comp_map, ←comp_map]
     rfl
 
-theorem seq_assoc {α β γ} (a : ReadWrite δ α) (g : ReadWrite δ (α → β)) (h : ReadWrite δ (β → γ)) :
+theorem seq_assoc {α β γ : Type u} (a : ReadWrite δ α) (g : ReadWrite δ (α → β)) (h : ReadWrite δ (β → γ)) :
     seq h (fun _ => seq g fun _ => a) = ((map Function.comp h).seq fun _ => g).seq fun _ => a := by
   cases h <;> simp only [seq, map]
   · simp [map_seq_r]
-  · rw [seq_tryDeepWrite, map_seq_r]
-  · rw [map_seq_r, seq_tryDeepSleep]
+  · simp [seq_tryDeep, map_seq_r, map, seq]
+  · simp [seq_tryDeep, map_seq_r, map, seq]
   · rw [map_seq_r, ←comp_map, seq_assoc]
     simp only [←comp_map]
     rfl
