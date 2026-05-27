@@ -73,6 +73,7 @@ theorem sizeOf_map_eq_sizeOf {f : α → β} {x : IOEffects ξ ι α} : sizeOf (
   induction x generalizing β <;> simp_all [map]
 
 /-- Apply the final constructor `ofPure` to states that have `.pure` as their final constructor. -/
+@[simp]
 def tryDeep (ofPure : {τ : Type u} → τ → IOEffects ξ ι τ) : IOEffects ξ ι α → IOEffects ξ ι α
   | .pure a => ofPure a
   -- Non-final constructors just recurse
@@ -137,5 +138,62 @@ theorem seq_tryDeep {α} {β} {g : IOEffects ξ ι (α → β)} {x : IOEffects �
     | simp [tryDeep, seq, tryDeep_idempotent]; done -- non-pure final constructors
     | simp only [tryDeep, seq]; apply hseq_ofPure -- pure
     | simp only [tryDeep, seq]; rw [map_tryDeep hmap, seq_tryDeep] <;> assumption -- reads (recurse)
+
+end
+
+/-! ### Now we prove the laws needed for the `LawfulSeq` instance -/
+section
+
+-- Trivial but needed below
+theorem map_pure (f : α → β) (x : α) : map f (pure (ξ := ξ) (ι := ι) x) = pure (f x) :=
+  rfl
+
+theorem comp_map {α β γ} (g : α → β) (h : β → γ) (a : IOEffects ξ ι α)
+    : map (h ∘ g) a = map h (map g a) := by
+  induction a generalizing β γ
+  all_goals first
+    | rfl -- all the final constructors
+    | rename_i ih; simp only [map] at ⊢ ih; congr 1; apply ih (g ∘ ·) (h ∘ ·) -- reads
+
+theorem pure_seq (g : α → β) (a : IOEffects ξ ι α) : (pure g).seq (fun _ => a) = map g a := by
+  cases a <;> simp [seq]
+
+theorem seq_pure {α β} (g : IOEffects ξ ι (α → β)) (a : α)
+    : seq g (fun _ => pure a) = map (· a) g := by
+  -- Again, have to recurse instead of using `induction` tactic
+  cases g
+  all_goals first
+    | simp [seq, map, tryDeep]; done -- final constructors
+    | simp only [seq, map]; congr 1; rw [seq_pure, ←comp_map]; rfl -- reads (recurse)
+
+theorem map_seq_r {α β γ : Type u} {f : β → γ} {g : IOEffects ξ ι (α → β)} {a : IOEffects ξ ι α}
+    : map f (seq g fun _ => a) = seq (map (f ∘ ·) g) fun _ => a := by
+  cases g
+  all_goals first
+    | simp [comp_map, map_tryDeep]; done -- final constructors
+    | simp only [map, seq]; congr 1; rw [map_seq_r, ←comp_map, ←comp_map]; rfl -- reads (recurse)
+
+theorem seq_assoc {α β γ : Type u} (a : IOEffects ξ ι α) (g : IOEffects ξ ι (α → β)) (h : IOEffects ξ ι (β → γ)) :
+    seq h (fun _ => seq g fun _ => a) = ((map Function.comp h).seq fun _ => g).seq fun _ => a := by
+  cases h <;> simp only [seq, map]
+  all_goals first
+    | simp [map_seq_r, seq_tryDeep]; done -- final constructors
+    | rw [map_seq_r, ←comp_map, seq_assoc]; simp only [←comp_map]; rfl -- reads (recurse)
+
+instance : Applicative (IOEffects ξ ι) where
+  pure := pure
+  seq := seq
+  map := map
+
+instance : LawfulApplicative (IOEffects ξ ι) where
+  map_const := rfl
+  id_map a := by induction a <;> first | rfl | simpa [Functor.map]
+  map_pure := map_pure
+
+  seqLeft_eq a b := rfl
+  seqRight_eq a b := rfl
+  pure_seq := pure_seq
+  seq_pure := seq_pure
+  seq_assoc := seq_assoc
 
 end
