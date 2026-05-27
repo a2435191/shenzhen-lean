@@ -7,6 +7,7 @@
 inductive ReadWrite (δ : Type) : Type v → Type _
 | pure (a : α)                      : ReadWrite δ α
 | write (d : δ) (a : α)             : ReadWrite δ α
+| sleep (n : Nat) (h : n ≠ 0)       : ReadWrite δ α
 | read (next : ReadWrite δ (δ → α)) : ReadWrite δ α
 
 namespace ReadWrite
@@ -14,6 +15,7 @@ namespace ReadWrite
 def map (f : α → β) : ReadWrite δ α → ReadWrite δ β
   | .pure a => .pure (f a)
   | .write d a => .write d (f a)
+  | .sleep n h => .sleep n h
   | .read next => .read <| map (f ∘ ·) next
 
 @[simp]
@@ -26,6 +28,7 @@ def _root_.Function.swap (f : α → β → γ) : β → α → γ :=
 def writeIfNotAlreadyWritten (toWrite : δ) : ReadWrite δ α → ReadWrite δ α
   | .pure a => .write toWrite a
   | .write written a => .write written a
+  | .sleep n h => .sleep n h
   | .read next => .read (writeIfNotAlreadyWritten toWrite next)
 
 -- Get `f ← mf`, then apply it to `a ← (ma ())`. If `f` and `x` both write, keep the write from `f`.
@@ -33,6 +36,7 @@ def seq (mf : ReadWrite δ (α → β)) (ma : Unit → ReadWrite δ α) : ReadWr
   match mf with
   | .pure f => map f (ma ())
   | .write d f => writeIfNotAlreadyWritten d (map f (ma ()))
+  | .sleep n h => .sleep n h
   | .read nextF => .read (seq (map Function.swap nextF) ma)
 termination_by sizeOf mf
 
@@ -51,7 +55,7 @@ theorem map_writeIfNotAlreadyWritten {d : δ} {f : α → β} {x : ReadWrite δ 
 theorem writeIfNotAlreadyWritten_idempotent {x : ReadWrite δ α}
     : writeIfNotAlreadyWritten d' (writeIfNotAlreadyWritten d x) = writeIfNotAlreadyWritten d x := by
   match x with
-  | .pure _ | .write .. => rfl
+  | .pure _ | .write .. | .sleep .. => rfl
   | .read next =>
     simp only [writeIfNotAlreadyWritten, read.injEq]
     apply writeIfNotAlreadyWritten_idempotent
@@ -66,6 +70,7 @@ theorem comp_map {α β γ} (g : α → β) (h : β → γ) (a : ReadWrite δ α
   induction a generalizing β γ
   · rfl
   · simp [map]
+  · rfl
   · rename_i ih
     simp only [map] at ⊢ ih
     congr 1
@@ -79,6 +84,7 @@ theorem seq_pure {α β} (g : ReadWrite δ (α → β)) (a : α)
   cases g
   · simp [seq, map]
   · simp [seq, map, writeIfNotAlreadyWritten]
+  · simp [seq, map]
   · rename_i next
     simp only [seq, map]
     congr 1
@@ -90,6 +96,7 @@ theorem seq_writeIfNotAlreadyWritten {α β} {d : δ} {g : ReadWrite δ (α → 
   cases g
   · simp [writeIfNotAlreadyWritten, seq]
   · simp [writeIfNotAlreadyWritten, seq, writeIfNotAlreadyWritten_idempotent]
+  · simp [writeIfNotAlreadyWritten, seq]
   · simp only [writeIfNotAlreadyWritten, seq]
     rw [map_writeIfNotAlreadyWritten, seq_writeIfNotAlreadyWritten]
 
@@ -98,6 +105,7 @@ theorem map_seq_r {α β γ} {f : β → γ} {g : ReadWrite δ (α → β)} {a :
   cases g
   · simp [pure_seq, map_pure, comp_map]
   · simp [seq, map_writeIfNotAlreadyWritten, map, comp_map]
+  · simp [seq, map]
   · simp only [map, seq]
     congr 1
     rw [map_seq_r, ←comp_map, ←comp_map]
