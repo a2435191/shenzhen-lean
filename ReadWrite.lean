@@ -53,11 +53,11 @@ instance : Applicative (ReadWrite δ) where
   map := map
   seq := seq
 
-theorem map_writeIfNotAlreadyWritten {d : δ} {f : α → β} {x : ReadWrite δ α}
+theorem map_tryDeepWrite {d : δ} {f : α → β} {x : ReadWrite δ α}
     : map f (tryDeepWrite d x) = tryDeepWrite d (map f x) := by
   cases x <;> try rfl
   simp only [tryDeepWrite, map, read.injEq]
-  apply map_writeIfNotAlreadyWritten
+  apply map_tryDeepWrite
 
 theorem map_tryDeepSleep {f : α → β} {x : ReadWrite δ α}
     : map f (tryDeepSleep n h x) = tryDeepSleep n h (map f x) := by
@@ -65,14 +65,14 @@ theorem map_tryDeepSleep {f : α → β} {x : ReadWrite δ α}
   simp only [tryDeepSleep, map, read.injEq]
   apply map_tryDeepSleep
 
-/-- The fundamental property of `writeIfNotAlreadyWritten`. -/
-theorem writeIfNotAlreadyWritten_idempotent {x : ReadWrite δ α}
+/-- The fundamental property of `tryDeepWrite`. -/
+theorem tryDeepWrite_idempotent {x : ReadWrite δ α}
     : tryDeepWrite d' (tryDeepWrite d x) = tryDeepWrite d x := by
   match x with
   | .pure _ | .write .. | .sleep .. => rfl
   | .read next =>
     simp only [tryDeepWrite, read.injEq]
-    apply writeIfNotAlreadyWritten_idempotent
+    apply tryDeepWrite_idempotent
 
 variable {α β δ}
 
@@ -117,14 +117,14 @@ theorem tryDeepSleep_idempotent : tryDeepSleep n' h' x = tryDeepSleep n h (tryDe
   induction x <;> simp only [tryDeepSleep]
   congr
 
-theorem seq_writeIfNotAlreadyWritten {α β} {d : δ} {g : ReadWrite δ (α → β)} {x : ReadWrite δ α}
+theorem seq_tryDeepWrite {α β} {d : δ} {g : ReadWrite δ (α → β)} {x : ReadWrite δ α}
     : seq (tryDeepWrite d g) (fun _ => x) = tryDeepWrite d (seq g fun _ => x) := by
   cases g
   · simp [tryDeepWrite, seq]
-  · simp [tryDeepWrite, seq, writeIfNotAlreadyWritten_idempotent]
-  · simp [tryDeepWrite, seq, ←map_tryDeepSleep, ←map_writeIfNotAlreadyWritten, tryDeepWrite_tryDeepSleep_idempotent]
+  · simp [tryDeepWrite, seq, tryDeepWrite_idempotent]
+  · simp [tryDeepWrite, seq, ←map_tryDeepSleep, ←map_tryDeepWrite, tryDeepWrite_tryDeepSleep_idempotent]
   · simp only [tryDeepWrite, seq]
-    rw [map_writeIfNotAlreadyWritten, seq_writeIfNotAlreadyWritten]
+    rw [map_tryDeepWrite, seq_tryDeepWrite]
 
 theorem seq_tryDeepSleep {α β} {g : ReadWrite δ (α → β)} {x : ReadWrite δ α}
     : seq (tryDeepSleep n h g) (fun _ => x) = tryDeepSleep n h (seq g fun _ => x) := by
@@ -139,7 +139,7 @@ theorem map_seq_r {α β γ} {f : β → γ} {g : ReadWrite δ (α → β)} {a :
     : map f (seq g fun _ => a) = seq (map (f ∘ ·) g) fun _ => a := by
   cases g
   · simp [pure_seq, map_pure, comp_map]
-  · simp [seq, map_writeIfNotAlreadyWritten, map, comp_map]
+  · simp [seq, map_tryDeepWrite, map, comp_map]
   · simp [seq, map, map_tryDeepSleep, comp_map]
   · simp only [map, seq]
     congr 1
@@ -150,7 +150,7 @@ theorem seq_assoc {α β γ} (a : ReadWrite δ α) (g : ReadWrite δ (α → β)
     seq h (fun _ => seq g fun _ => a) = ((map Function.comp h).seq fun _ => g).seq fun _ => a := by
   cases h <;> simp only [seq, map]
   · simp [map_seq_r]
-  · rw [seq_writeIfNotAlreadyWritten, map_seq_r]
+  · rw [seq_tryDeepWrite, map_seq_r]
   · rw [map_seq_r, seq_tryDeepSleep]
   · rw [map_seq_r, ←comp_map, seq_assoc]
     simp only [←comp_map]
