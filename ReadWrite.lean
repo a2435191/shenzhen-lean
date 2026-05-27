@@ -36,26 +36,105 @@ def seq (mf : ReadWrite δ (α → β)) (ma : Unit → ReadWrite δ α) : ReadWr
   | .read nextF => .read (seq (map Function.swap nextF) ma)
 termination_by sizeOf mf
 
+-- Can we show this, from the other end (processing `ma` first) is equivalent?
+-- def seq' (mf : ReadWrite δ (α → β)) (ma : ReadWrite δ α) : ReadWrite δ β :=
+--   match ma with
+--   | .pure a => map (· a) mf
+--   | .write d a =>
+--     match (map (· a) mf : ReadWrite δ β) with -- before this write. No idea why I need to specify the type tho
+--     | .pure b => .write d b
+--     | .write d' b => .write d' b
+--     | .read next => .read (writeIfNotAlreadyWritten d next)
+--   | .read next =>
+--     match mf with
+--     | .pure f => .read (map (f ∘ ·) next)
+--     | .write d f =>
+
 instance : Applicative (ReadWrite δ) where
   pure := pure
   map := map
   seq := seq
 
+theorem map_writeIfNotAlreadyWritten {d : δ} {f : α → β} {x : ReadWrite δ α}
+    : map f (writeIfNotAlreadyWritten d x) = writeIfNotAlreadyWritten d (map f x) := by
+  cases x <;> try rfl
+  simp only [writeIfNotAlreadyWritten, map, read.injEq]
+  apply map_writeIfNotAlreadyWritten
+
 /-- The fundamental property of `writeIfNotAlreadyWritten`. -/
 theorem writeIfNotAlreadyWritten_idempotent {x : ReadWrite δ α}
     : writeIfNotAlreadyWritten d' (writeIfNotAlreadyWritten d x) = writeIfNotAlreadyWritten d x := by
   match x with
-  | .pure a | .write d a => rfl
+  | .pure _ | .write .. => rfl
   | .read next =>
     simp only [writeIfNotAlreadyWritten, read.injEq]
     apply writeIfNotAlreadyWritten_idempotent
 
+variable {α β δ}
+
+theorem map_pure (f : α → β) (x : α) : map f (pure (δ := δ) x) = pure (f x) :=
+  rfl
+
+theorem comp_map {α β γ} (g : α → β) (h : β → γ) (a : ReadWrite δ α)
+    : map (h ∘ g) a = map h (map g a) := by
+  induction a generalizing β γ
+  · rfl
+  · simp [map]
+  · rename_i ih
+    simp only [map] at ⊢ ih
+    congr 1
+    apply ih (g ∘ ·) (h ∘ ·)
+
+theorem pure_seq (g : α → β) (a : ReadWrite δ α) : (pure g).seq (fun _ => a) = map g a := by
+  cases a <;> simp [seq]
+
+theorem seq_pure {α β} (g : ReadWrite δ (α → β)) (a : α)
+    : seq g (fun _ => pure a) = map (· a) g := by
+  cases g
+  · simp [seq, map]
+  · simp [seq, map, writeIfNotAlreadyWritten]
+  · rename_i next
+    simp only [seq, map]
+    congr 1
+    rw [seq_pure, ←comp_map]
+    rfl
+
+theorem seq_writeIfNotAlreadyWritten {α β} {d : δ} {g : ReadWrite δ (α → β)} {x : ReadWrite δ α}
+    : seq (writeIfNotAlreadyWritten d g) (fun _ => x) = writeIfNotAlreadyWritten d (seq g fun _ => x) := by
+  cases g
+  · simp [writeIfNotAlreadyWritten, seq]
+  · simp [writeIfNotAlreadyWritten, seq, writeIfNotAlreadyWritten_idempotent]
+  · simp only [writeIfNotAlreadyWritten, seq]
+    rw [map_writeIfNotAlreadyWritten, seq_writeIfNotAlreadyWritten]
+
+theorem map_seq_r {α β γ} {f : β → γ} {g : ReadWrite δ (α → β)} {a : ReadWrite δ α}
+    : map f (seq g fun _ => a) = seq (map (f ∘ ·) g) fun _ => a := by
+  cases g
+  · simp [pure_seq, map_pure, comp_map]
+  · simp [seq, map_writeIfNotAlreadyWritten, map, comp_map]
+  · simp only [map, seq]
+    congr 1
+    rw [map_seq_r, ←comp_map, ←comp_map]
+    rfl
+
+theorem seq_assoc {α β γ} (a : ReadWrite δ α) (g : ReadWrite δ (α → β)) (h : ReadWrite δ (β → γ)) :
+    seq h (fun _ => seq g fun _ => a) = ((map Function.comp h).seq fun _ => g).seq fun _ => a := by
+  cases h <;> simp only [seq, map]
+  · simp [map_seq_r]
+  · rw [seq_writeIfNotAlreadyWritten, map_seq_r]
+  · rw [map_seq_r, ←comp_map, seq_assoc]
+    simp only [←comp_map]
+    rfl
+
 instance : LawfulApplicative (ReadWrite δ) where
   map_const := rfl
-  id_map := sorry
+  id_map a := by
+    induction a <;> try rfl
+    simpa! [Functor.map]
+  map_pure f x := rfl
+
   seqLeft_eq a b := rfl
   seqRight_eq a b := rfl
-  pure_seq := sorry
-  map_pure := sorry
-  seq_pure := sorry
-  seq_assoc := sorry
+  pure_seq := pure_seq
+  seq_pure := seq_pure
+  seq_assoc := seq_assoc
