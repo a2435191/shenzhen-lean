@@ -44,6 +44,21 @@ instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
 instance : Pure (IOEffects ξ ι) where
   pure := .pure
 
+@[simp]
+def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
+  | .pure a => .pure (f a)
+  | .xBusRead p next => .xBusRead p (map (f ∘ ·) next)         -- recurse
+  | .xBusWrite p d next => .xBusWrite p d (f next)
+  | .xBusPoll p next => .xBusPoll p (f next)
+  | .simpleIORead p next => .simpleIORead p (map (f ∘ ·) next) -- recurse
+  | .simpleIOWrite p d next => .simpleIOWrite p d (f next)
+  | .sleep n h next => .sleep n h (f next)
+
+/-! Needed for proof of termination of `seq` below -/
+@[simp]
+theorem sizeOf_map_eq_sizeOf {f : α → β} {x : IOEffects ξ ι α} : sizeOf (map f x) = sizeOf x := by
+  induction x generalizing β <;> simp_all [map]
+
 -- @[simp]
 -- def bind (mx : IOEffects ξ ι α) (f : α → IOEffects ξ ι β) : IOEffects ξ ι β :=
 --   match mx with
