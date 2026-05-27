@@ -38,6 +38,8 @@ inductive IOEffects (ξ : Type u) (ι : Type v) : Type x → Type _
 
 namespace IOEffects
 
+/-! ## Misc. functions -/
+
 instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
   ⟨.pure default⟩
 
@@ -52,6 +54,8 @@ def advanceSleep (fx : IOEffects ξ ι α) (h : fx.isSleep = true) : IOEffects �
   | .xBusPoll .. => fx
   | .sleep 1 _ next => .pure next
   | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
+
+/-! ## `map` and `seq` -/
 
 @[simp]
 def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
@@ -95,3 +99,5 @@ def seq (mf : IOEffects ξ ι (α → β)) (ma : Unit → IOEffects ξ ι α) : 
   | .xBusRead pin next => .xBusRead pin (seq (map Function.swap next) ma)
   | .simpleIORead pin next => .simpleIORead pin (seq (map Function.swap next) ma)
 termination_by sizeOf mf -- hint
+
+/-! ## Now we prove `seq` and `map` are lawful -/
