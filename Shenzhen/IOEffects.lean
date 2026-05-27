@@ -100,4 +100,42 @@ def seq (mf : IOEffects ξ ι (α → β)) (ma : Unit → IOEffects ξ ι α) : 
   | .simpleIORead pin next => .simpleIORead pin (seq (map Function.swap next) ma)
 termination_by sizeOf mf -- hint
 
-/-! ## Now we prove `seq` and `map` are lawful -/
+/-! ## Now we prove `seq` and `map` are lawful
+  This approach was tested in `ReadWrite.lean`. Avoid the notation for `seq`, `pure`, and `bind`
+  here because unfolding it proofs is annoying. -/
+
+/-! ### First, helper theorems showing `tryDeep` respects `seq` and `map` and is idempotent. -/
+section
+
+variable {α β : Type u} {f : α → β} {ofPure ofPure' : ∀ {τ : Type u}, τ → IOEffects ξ ι τ} {x : IOEffects ξ ι α}
+
+theorem map_tryDeep
+  (map_ofPure : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
+    : map f (tryDeep ofPure x) = tryDeep ofPure (map f x) := by
+  induction x generalizing β
+  all_goals first
+    | rfl -- non-pure final constructors
+    | simp [tryDeep, map, map_ofPure]; done -- pure
+    | simp only [map, tryDeep]; rename_i ih; rw [ih] -- reads
+
+theorem tryDeep_idempotent
+    (hf : ∀ {α'} (a : α'), tryDeep ofPure' (ofPure a) = ofPure a)
+    : tryDeep ofPure' (tryDeep ofPure x) = tryDeep ofPure x := by
+  induction x
+  all_goals first
+    | rfl -- non-pure final constructors
+    | simp only [tryDeep]; apply hf; done -- pure
+    | simp only [tryDeep]; rename_i _ ih; rw [ih] -- reads
+
+theorem seq_tryDeep {α} {β} {g : IOEffects ξ ι (α → β)} {x : IOEffects ξ ι α}
+    (hseq_ofPure : ∀ {τ τ' : Type u} (t : IOEffects ξ ι τ) (h : τ → τ'), ((ofPure h).seq fun _ => t) = tryDeep ofPure (map h t))
+    (hmap : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
+    : seq (tryDeep ofPure g) (fun _ => x) = tryDeep ofPure (seq g fun _ => x) := by
+  -- can't use induction tactic because `g` is parametrized by `α → β`, a function type
+  cases g
+  all_goals first
+    | simp [tryDeep, seq, tryDeep_idempotent]; done -- non-pure final constructors
+    | simp only [tryDeep, seq]; apply hseq_ofPure -- pure
+    | simp only [tryDeep, seq]; rw [map_tryDeep hmap, seq_tryDeep] <;> assumption -- reads (recurse)
+
+end
