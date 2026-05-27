@@ -143,92 +143,92 @@ def advanceIP {m} (flags : Vector ConditionalFlag m)
       | some ip' =>
         is.setIP ip' -- just set the new IP
 
-/-- `IOEffects m α` wraps `α` and mutable `InstructionState m` state inside `IOEffects`.
-  Equal to `InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m)`. -/
+/-- `IOEffects m α` wraps `α` and mutable `InstructionState m` state inside `IOEffects`. -/
 @[reducible]
-private def Effects (m : ℕ) : Type → Type :=
-  StateT (InstructionState m) (IOEffects XBus SimpleIO)
+private def Effects (m : ℕ) (α : Type) : Type 1 :=
+  IOEffects XBus SimpleIO (StateM (InstructionState m) α)
 
 /-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks).
   The effects include advancing the instruction pointer. -/
 def instructionEffects {m} (instr : Instruction m) (flags : Vector ConditionalFlag m)
     : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) :=
-  let res := impl *> setNextIP
-  fun s => res s <&> Prod.snd
-where
-  /-- Here we tell ensure that `.pure` states (whether buried under other `IOEffects` or not)
-    advance the instruction pointer. -/
-  setNextIP : Effects m Unit := do
-    match instr with
-    | .jmp ip' => modify (InstructionState.setIP ip')
-    | _ => modify (advanceIP flags)
+  sorry
+--   let res := impl *> setNextIP
+--   fun s => res s <&> Prod.snd
+-- where
+--   /-- Here we tell ensure that `.pure` states (whether buried under other `IOEffects` or not)
+--     advance the instruction pointer. -/
+--   setNextIP : Effects m Unit := do
+--     match instr with
+--     | .jmp ip' => modify (InstructionState.setIP ip')
+--     | _ => modify (advanceIP flags)
 
-  /-- Handle everything except for updating the IP -/
-  impl : Effects m Unit := do
-    -- TODO: somewhere (maybe here) set the conditional flag corresponding to "@" after executing this instr
-    match instr with
-    -- Basic
-    | .nop => return
-    | .mov src dst =>
-      let d ← readRegOrInt src
-      match dst with
-      | .null => return
-      | .internal .acc => modify ({· with acc := d})
-      | .simpleIO i =>
-        let d := d.toSimpleIOData
-        ret (.simpleIOWrite i d pure)
-      | .xBus x => ret (.xBusWrite x d pure)
-    | .jmp _ => return -- handled in `setNextIP`
-    | .slp ri =>
-      let d ← readRegOrInt ri
-      match d.clampToNat with
-      | 0 => return
-      | k + 1 => ret <| .sleep (k + 1) (Nat.succ_ne_zero _) pure
-    | .slx r => ret (.xBusPoll r pure)
-    -- Arithmetic
-    | .add ri => doArith ri (· + ·)
-    | .sub ri => doArith ri (· - ·)
-    | .mul ri => doArith ri (· * ·)
-    | .not => modify (.modifyAcc Integer.not)
-    | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
-    | .dst ri₁ ri₂ =>
-      -- set the `ri₁`th digit of `acc` to `ri₂`
-      let digit ← readRegOrInt ri₁
-      let num ← readRegOrInt ri₂
-      modify (.modifyAcc (Integer.setDigit · digit num))
-    -- Test (comparison)
-    | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
-    | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
-    | .tlt ri₁ ri₂ => doCmp ri₁ ri₂ (· < ·)
-    | .tcp ri₁ ri₂ =>
-      let d₁ ← readRegOrInt ri₁
-      let d₂ ← readRegOrInt ri₂
-      modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
+--   /-- Handle everything except for updating the IP -/
+--   impl : Effects m Unit := do
+--     -- TODO: somewhere (maybe here) set the conditional flag corresponding to "@" after executing this instr
+--     match instr with
+--     -- Basic
+--     | .nop => return
+--     | .mov src dst =>
+--       let d ← readRegOrInt src
+--       match dst with
+--       | .null => return
+--       | .internal .acc => modify ({· with acc := d})
+--       | .simpleIO i =>
+--         let d := d.toSimpleIOData
+--         ret (.simpleIOWrite i d pure)
+--       | .xBus x => ret (.xBusWrite x d pure)
+--     | .jmp _ => return -- handled in `setNextIP`
+--     | .slp ri =>
+--       let d ← readRegOrInt ri
+--       match d.clampToNat with
+--       | 0 => return
+--       | k + 1 => ret <| .sleep (k + 1) (Nat.succ_ne_zero _) pure
+--     | .slx r => ret (.xBusPoll r pure)
+--     -- Arithmetic
+--     | .add ri => doArith ri (· + ·)
+--     | .sub ri => doArith ri (· - ·)
+--     | .mul ri => doArith ri (· * ·)
+--     | .not => modify (.modifyAcc Integer.not)
+--     | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
+--     | .dst ri₁ ri₂ =>
+--       -- set the `ri₁`th digit of `acc` to `ri₂`
+--       let digit ← readRegOrInt ri₁
+--       let num ← readRegOrInt ri₂
+--       modify (.modifyAcc (Integer.setDigit · digit num))
+--     -- Test (comparison)
+--     | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
+--     | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
+--     | .tlt ri₁ ri₂ => doCmp ri₁ ri₂ (· < ·)
+--     | .tcp ri₁ ri₂ =>
+--       let d₁ ← readRegOrInt ri₁
+--       let d₂ ← readRegOrInt ri₂
+--       modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
 
-  /-- Read an integer from `ri` (inside `Effects m`) -/
-  readRegOrInt (ri : RegOrInt) : Effects m Integer := do
-    match ri with
-    | .int n => return n
-    | .null => return 0
-    | .internal .acc => return (←get).acc
-    | .xBus x => do ret (.xBusRead x pure)
-    | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
+--   /-- Read an integer from `ri` (inside `Effects m`) -/
+--   readRegOrInt (ri : RegOrInt) : Effects m Integer := do
+--     match ri with
+--     | .int n => return n
+--     | .null => return 0
+--     | .internal .acc => return (←get).acc
+--     | .xBus x => do ret (.xBusRead x pure)
+--     | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
 
-  /-- Set the `acc` register to `f acc (←readRegOrInt ri)`. -/
-  doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : Effects m Unit := do
-    let d ← readRegOrInt ri
-    modify (.modifyAcc' f d)
+--   /-- Set the `acc` register to `f acc (←readRegOrInt ri)`. -/
+--   doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : Effects m Unit := do
+--     let d ← readRegOrInt ri
+--     modify (.modifyAcc' f d)
 
-  /-- Run the comparison function `f` with `ri₁` and `ri₂` as inputs, then
-    update the conditional flags accordingly. -/
-  doCmp (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → Bool) : Effects m Unit := do
-    let d₁ ← readRegOrInt ri₁
-    let d₂ ← readRegOrInt ri₂
-    modify (.setCondIff (f d₁ d₂))
+--   /-- Run the comparison function `f` with `ri₁` and `ri₂` as inputs, then
+--     update the conditional flags accordingly. -/
+--   doCmp (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → Bool) : Effects m Unit := do
+--     let d₁ ← readRegOrInt ri₁
+--     let d₂ ← readRegOrInt ri₂
+--     modify (.setCondIff (f d₁ d₂))
 
-  /-- Return an `IOEffects` within the greater monad -/
-  ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
-    fun is => bfx <&> (·, is)
+--   /-- Return an `IOEffects` within the greater monad -/
+--   ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
+--     fun is => bfx <&> (·, is)
 
 /-- The state of an executing chip -/
 structure State where
@@ -317,16 +317,16 @@ def resolveXBusReadsAndPeeks {n : ℕ} (xBusConns : Conns n XBus)
         match findWrite? (i, pin) states alreadyTicked with
         | .some ⟨j, pin', d, next'⟩ =>
           let states' := states
-            |>.set i { states[i] with instructionState := next d }
+            |>.set i { states[i] with instructionState := pure next', m := _ } -- TODO: remove the m assignment
             -- TODO: somewhere else in some comment I say that this is tolerant of multiple writes, idt that's true since we clear `waitingToWrite[pin]` here? Think about this
-            |>.set j { states[j] with instructionState := next' (), waitingToWrite := states[j].waitingToWrite.set pin' false }
+            |>.set j { states[j] with instructionState := next <&> (· d), waitingToWrite := states[j].waitingToWrite.set pin' false, m := _ } -- TODO: remove the m assignment
           (states', alreadyTicked) -- Don't update mask— we might have more "free" operations (second bullet point below) to do
         | none => (states, alreadyTicked.set i true) -- update mask since this read blocks, meaning we're done for the tick
       | .xBusPoll pin next =>
         match findWrite? (i, pin) states alreadyTicked with
         | .some ⟨j, _, _, next'⟩ =>
           let states' := states
-            |>.set i { states[i] with instructionState := next () }
+            |>.set i { states[i] with instructionState := sorry }
             -- don't resolve the write since this is just a poll
           (states', alreadyTicked)
         | none => (states, alreadyTicked.set i true) -- update mask since this poll blocks
@@ -336,7 +336,7 @@ where
     its `alreadyTicked` bit is not set, and its `waiting-to-write` flag is set.
     Also return the `(outPin, d, next)` arguments to the `.xBusWrite` constructor. -/
   findWrite? (whichPin : Fin n × XBus) (states : Vector State n) (alreadyTicked : Vector Bool n)
-      : Option ((j : Fin n) × XBus × Integer × (Unit → IOEffects XBus SimpleIO (InstructionState states[j].m))) :=
+      : Option ((j : Fin n) × XBus × Integer × InstructionState states[j].m) :=
     Fin.findSome? (n := n) fun j =>
       if !alreadyTicked[j] then
         match h : states[j] with
@@ -369,7 +369,7 @@ def resolveSimpleIOWrites {n : ℕ}
     | (s, true) => s
     | (s@⟨m, instructionState, simpleIOOut, waitingToWrite⟩, false) =>
       match instructionState with
-      | .simpleIOWrite pin d next => ⟨m, next (), simpleIOOut.set pin d, waitingToWrite⟩
+      | .simpleIOWrite pin d next => ⟨m, pure next, simpleIOOut.set pin d, waitingToWrite⟩
       | _ => s
 
 /-- Resolve all outermost `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `simpleIOOut`
@@ -385,11 +385,11 @@ def resolveSimpleIOReads {n : ℕ}
     else
       match instructionState with
       | .simpleIORead pin next =>
-        let max := simpleIOConns.neighbors i pin
+        let max : SimpleIOData := simpleIOConns.neighbors i pin
           |>.map (fun (i', pin') => originalSimpleIOOuts[i'][pin'])
           |>.max?
           |>.getD 0
-        ⟨m, next max, simpleIOOut.set pin 0, waitingToWrite⟩
+        ⟨m, next <&> (· max), simpleIOOut.set pin 0, waitingToWrite⟩
       | _ => s
 
 section
