@@ -25,6 +25,7 @@ theorem sizeOf_map_eq_sizeOf {f : α → β} {x : ReadWrite δ α} : sizeOf (map
 def _root_.Function.swap (f : α → β → γ) : β → α → γ :=
   fun b a => f a b
 
+/-- Apply the terminal constructor `ofPure` to states that have `.pure` as their terminal constructor. -/
 def tryDeep (ofPure : {τ : Type u} → τ → ReadWrite δ τ) : ReadWrite δ α → ReadWrite δ α
   | .pure a => ofPure a
   | .read next => .read (tryDeep ofPure next)
