@@ -36,20 +36,6 @@ def seq (mf : ReadWrite δ (α → β)) (ma : Unit → ReadWrite δ α) : ReadWr
   | .read nextF => .read (seq (map Function.swap nextF) ma)
 termination_by sizeOf mf
 
--- Can we show this, from the other end (processing `ma` first) is equivalent?
--- def seq' (mf : ReadWrite δ (α → β)) (ma : ReadWrite δ α) : ReadWrite δ β :=
---   match ma with
---   | .pure a => map (· a) mf
---   | .write d a =>
---     match (map (· a) mf : ReadWrite δ β) with -- before this write. No idea why I need to specify the type tho
---     | .pure b => .write d b
---     | .write d' b => .write d' b
---     | .read next => .read (writeIfNotAlreadyWritten d next)
---   | .read next =>
---     match mf with
---     | .pure f => .read (map (f ∘ ·) next)
---     | .write d f =>
-
 instance : Applicative (ReadWrite δ) where
   pure := pure
   map := map
