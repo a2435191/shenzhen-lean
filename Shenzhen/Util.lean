@@ -2,6 +2,10 @@ import Batteries.Data.Fin.Basic
 import Batteries.Data.Fin.Lemmas
 import Batteries.Tactic.Lemma
 
+@[inline, simp]
+def Function.swap (f : α → β → γ) : β → α → γ :=
+  fun b a => f a b
+
 namespace Fin
 
 theorem add_assoc {a b c : Fin n} : a + b + c = a + (b + c) := by

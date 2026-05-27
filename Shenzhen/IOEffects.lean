@@ -56,6 +56,34 @@ def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
 theorem sizeOf_map_eq_sizeOf {f : α → β} {x : IOEffects ξ ι α} : sizeOf (map f x) = sizeOf x := by
   induction x generalizing β <;> simp_all [map]
 
+/-- Apply the final constructor `ofPure` to states that have `.pure` as their final constructor. -/
+def tryDeep (ofPure : {τ : Type u} → τ → IOEffects ξ ι τ) : IOEffects ξ ι α → IOEffects ξ ι α
+  | .pure a => ofPure a
+  -- Non-final constructors just recurse
+  | .xBusRead pin next => .xBusRead pin (tryDeep ofPure next)
+  | .simpleIORead pin next => .simpleIORead pin (tryDeep ofPure next)
+  -- All non-`pure` final constructors ignore
+  | other => other
+
+/-- Get `f ← mf`, then apply it to `a ← (ma ())`. If `f` and `x` both write, keep the write from `f`. -/
+@[simp]
+def seq (mf : IOEffects ξ ι (α → β)) (ma : Unit → IOEffects ξ ι α) : IOEffects ξ ι β :=
+  match mf with
+  | .pure f => map f (ma ())
+  -- Non-pure final constructors
+  | .xBusWrite p d f =>
+    -- i.e. prefer the state structure from `ma`, but if it's pure at the end
+    -- make it a write with `p` and `d`
+    tryDeep (.xBusWrite p d) (map f (ma ()))
+  | .simpleIOWrite p d f => tryDeep (.simpleIOWrite p d) (map f (ma ()))
+  | .xBusPoll p f => tryDeep (.xBusPoll p) (map f (ma ()))
+  | .sleep n h f => tryDeep (.sleep n h) (map f (ma ()))
+  -- The recursive a.k.a. non-final a.k.a. read constructors just recurse.
+  -- I think the best way to do this is map `Function.swap` across `next` first
+  | .xBusRead pin next => .xBusRead pin (seq (map Function.swap next) ma)
+  | .simpleIORead pin next => .simpleIORead pin (seq (map Function.swap next) ma)
+termination_by sizeOf mf -- hint
+
 -- @[simp]
 -- def bind (mx : IOEffects ξ ι α) (f : α → IOEffects ξ ι β) : IOEffects ξ ι β :=
 --   match mx with
