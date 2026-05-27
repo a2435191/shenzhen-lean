@@ -115,8 +115,7 @@ theorem map_tryDeep
     : map f (tryDeep ofPure x) = tryDeep ofPure (map f x) := by
   induction x generalizing β
   all_goals first
-    | rfl -- non-pure final constructors
-    | simp [tryDeep, map, map_ofPure]; done -- pure
+    | simp [map_ofPure]; done -- final constructors
     | simp only [map, tryDeep]; rename_i ih; rw [ih] -- reads
 
 theorem tryDeep_idempotent
@@ -135,7 +134,7 @@ theorem seq_tryDeep {α} {β} {g : IOEffects ξ ι (α → β)} {x : IOEffects �
   -- can't use induction tactic because `g` is parametrized by `α → β`, a function type
   cases g
   all_goals first
-    | simp [tryDeep, seq, tryDeep_idempotent]; done -- non-pure final constructors
+    | simp [tryDeep_idempotent]; done -- non-pure final constructors
     | simp only [tryDeep, seq]; apply hseq_ofPure -- pure
     | simp only [tryDeep, seq]; rw [map_tryDeep hmap, seq_tryDeep] <;> assumption -- reads (recurse)
 
@@ -163,7 +162,7 @@ theorem seq_pure {α β} (g : IOEffects ξ ι (α → β)) (a : α)
   -- Again, have to recurse instead of using `induction` tactic
   cases g
   all_goals first
-    | simp [seq, map, tryDeep]; done -- final constructors
+    | simp; done -- final constructors
     | simp only [seq, map]; congr 1; rw [seq_pure, ←comp_map]; rfl -- reads (recurse)
 
 theorem map_seq_r {α β γ : Type u} {f : β → γ} {g : IOEffects ξ ι (α → β)} {a : IOEffects ξ ι α}
