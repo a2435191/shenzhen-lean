@@ -33,6 +33,8 @@ def tryDeepWrite (toWrite : δ) : ReadWrite δ α → ReadWrite δ α
   | .sleep n h a => .sleep n h a
   | .read next => .read (tryDeepWrite toWrite next)
 
+/-- Like `tryDeepWrite` but for `sleep`. "deep" as in deepest (i.e. terminal) constructor, not
+  as in "deep sleep" -/
 def tryDeepSleep (n : Nat) (h : n ≠ 0) : ReadWrite δ α → ReadWrite δ α
   | .pure a => .sleep n h a
   | .write written a => .write written a
