@@ -144,27 +144,69 @@ def advanceIP {m} (flags : Vector ConditionalFlag m)
         is.setIP ip' -- just set the new IP
 
 /-- `IOEffects m α` wraps `α` and mutable `InstructionState m` state inside `IOEffects`. -/
-@[reducible]
-private def Effects (m : ℕ) (α : Type) : Type 1 :=
-  IOEffects XBus SimpleIO (StateM (InstructionState m) α)
+private abbrev Effects (m : ℕ) (α : Type) : Type 1 :=
+  IOEffects' XBus SimpleIO (StateM (InstructionState m) α)
 
 /-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks).
   The effects include advancing the instruction pointer. -/
 def instructionEffects {m} (instr : Instruction m) (flags : Vector ConditionalFlag m)
-    : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) :=
-  sorry
---   let res := impl *> setNextIP
---   fun s => res s <&> Prod.snd
--- where
---   /-- Here we tell ensure that `.pure` states (whether buried under other `IOEffects` or not)
---     advance the instruction pointer. -/
---   setNextIP : Effects m Unit := do
+    : IOEffects' XBus SimpleIO (InstructionState m → InstructionState m) :=
+  match instr with
+  | .nop => pure (advanceIP flags)
+  | .add ri =>
+    match ri with
+    | .null => pure id
+    | .int n => pure fun s => { s with acc := s.acc + n }
+    | .internal .acc => pure fun s => { s with acc := s.acc + s.acc }
+    | .xBus x => .xBusRead x (pure fun d s => { s with acc := s.acc + d })
+    | .simpleIO i => .simpleIORead i (pure fun d s => { s with acc := s.acc + d.toInteger })
+    -- and TODO advance IP
+  | .mov src dst =>
+    -- and TODO advance IP
+    match src, dst with
+    | .null, .null => pure id
+    | .null, .internal .acc => pure fun s => { s with acc := 0 }
+    | .null, .xBus x => .xBusWrite x 0 id
+    | .null, .simpleIO i => .simpleIOWrite i 0 id
+    | .int n, .null => pure id
+    | .int n, .internal .acc => pure fun s => { s with acc := n }
+    | .int n, .xBus x => .xBusWrite x n id
+    | .int n, .simpleIO i => .simpleIOWrite i n.toSimpleIOData id
+    | .internal .acc, .null => pure id
+    | .internal .acc, .internal .acc => pure fun s => { s with acc := s.acc }
+    | .internal .acc, .xBus x => sorry
+    | .internal .acc, .simpleIO i => .simpleIOWrite i sorry id
+    | .xBus x, .null => .xBusRead x (pure fun _ s => s)
+    | .xBus x, .internal .acc => .xBusRead x (pure fun d s => { s with acc := d })
+    | .xBus x₁, .xBus x₂ => .xBusRead x₁ <| .xBusWrite x₂ id (fun _ => id)
+    | .xBus x, .simpleIO i => sorry
+    | .simpleIO i, .null => sorry
+    | .simpleIO i, .internal .acc => sorry
+    | .simpleIO i, .xBus x => sorry
+    | .simpleIO i₁, .simpleIO i₂ => sorry
+    -- let write : IOEffects XBus SimpleIO (Integer → InstructionState m) :=
+    --   match dst with
+    --   | .null => pure fun _ => s
+    --   | .internal .acc => pure fun d => { s with acc := d }
+    --   | .xBus x => .xBusWrite x sorry sorry
+    --   | .simpleIO i => .simpleIOWrite i sorry sorry
+    --   sorry
+    -- let read : IOEffects XBus SimpleIO Integer :=
+    --   sorry
+    -- write <*> read
+  | _ => sorry
+where
+  /-- Here we tell ensure that `.pure` states (whether buried under other `IOEffects` or not)
+    advance the instruction pointer. -/
+  setNextIP : Effects m Unit :=
+    sorry
 --     match instr with
 --     | .jmp ip' => modify (InstructionState.setIP ip')
 --     | _ => modify (advanceIP flags)
 
---   /-- Handle everything except for updating the IP -/
---   impl : Effects m Unit := do
+  /-- Handle everything except for updating the IP -/
+  impl : Effects m Unit :=
+    sorry
 --     -- TODO: somewhere (maybe here) set the conditional flag corresponding to "@" after executing this instr
 --     match instr with
 --     -- Basic
@@ -205,8 +247,9 @@ def instructionEffects {m} (instr : Instruction m) (flags : Vector ConditionalFl
 --       let d₂ ← readRegOrInt ri₂
 --       modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
 
---   /-- Read an integer from `ri` (inside `Effects m`) -/
---   readRegOrInt (ri : RegOrInt) : Effects m Integer := do
+  /-- Read an integer from `ri` (inside `Effects m`) -/
+  readRegOrInt (ri : RegOrInt) : Effects m Integer :=
+    sorry
 --     match ri with
 --     | .int n => return n
 --     | .null => return 0
@@ -214,21 +257,24 @@ def instructionEffects {m} (instr : Instruction m) (flags : Vector ConditionalFl
 --     | .xBus x => do ret (.xBusRead x pure)
 --     | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
 
---   /-- Set the `acc` register to `f acc (←readRegOrInt ri)`. -/
---   doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : Effects m Unit := do
+  /-- Set the `acc` register to `f acc (←readRegOrInt ri)`. -/
+  doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : Effects m Unit :=
+    sorry
 --     let d ← readRegOrInt ri
 --     modify (.modifyAcc' f d)
 
---   /-- Run the comparison function `f` with `ri₁` and `ri₂` as inputs, then
---     update the conditional flags accordingly. -/
---   doCmp (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → Bool) : Effects m Unit := do
---     let d₁ ← readRegOrInt ri₁
---     let d₂ ← readRegOrInt ri₂
---     modify (.setCondIff (f d₁ d₂))
+  /-- Run the comparison function `f` with `ri₁` and `ri₂` as inputs, then
+    update the conditional flags accordingly. -/
+  doCmp (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → Bool) : Effects m Unit :=
+    sorry
+    -- let d₁ ← readRegOrInt ri₁
+    -- let d₂ ← readRegOrInt ri₂
+    -- modify (.setCondIff (f d₁ d₂))
 
---   /-- Return an `IOEffects` within the greater monad -/
---   ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
---     fun is => bfx <&> (·, is)
+  /-- Return an `IOEffects` within the greater monad -/
+  ret {m α} (bfx : IOEffects' XBus SimpleIO α) : Effects m α :=
+    sorry
+    -- fun is => bfx <&> (·, is)
 
 /-- The state of an executing chip -/
 structure State where
@@ -237,7 +283,7 @@ structure State where
   m : ℕ
 
   -- Only changes at instruction boundaries
-  instructionState : IOEffects XBus SimpleIO (InstructionState m)
+  instructionState : IOEffects' XBus SimpleIO (InstructionState m)
 
   -- now, the state that can be mutated between ticks inside an instruction
 
@@ -317,9 +363,11 @@ def resolveXBusReadsAndPeeks {n : ℕ} (xBusConns : Conns n XBus)
         match findWrite? (i, pin) states alreadyTicked with
         | .some ⟨j, pin', d, next'⟩ =>
           let states' := states
-            |>.set i { states[i] with instructionState := pure next', m := _ } -- TODO: remove the m assignment
+            |>.set i { states[i] with instructionState := .pure next', m := _ } -- TODO: remove the m assignment
             -- TODO: somewhere else in some comment I say that this is tolerant of multiple writes, idt that's true since we clear `waitingToWrite[pin]` here? Think about this
-            |>.set j { states[j] with instructionState := next <&> (· d), waitingToWrite := states[j].waitingToWrite.set pin' false, m := _ } -- TODO: remove the m assignment
+            |>.set j { states[j] with
+                       instructionState := (next.mapXBusData (fun (f : Integer → Integer) => f d)).map (fun (f : Integer → _) => f d),
+                       waitingToWrite := states[j].waitingToWrite.set pin' false, m := _ } -- TODO: remove the m assignment
           (states', alreadyTicked) -- Don't update mask— we might have more "free" operations (second bullet point below) to do
         | none => (states, alreadyTicked.set i true) -- update mask since this read blocks, meaning we're done for the tick
       | .xBusPoll pin next =>
@@ -389,7 +437,7 @@ def resolveSimpleIOReads {n : ℕ}
           |>.map (fun (i', pin') => originalSimpleIOOuts[i'][pin'])
           |>.max?
           |>.getD 0
-        ⟨m, next <&> (· max), simpleIOOut.set pin 0, waitingToWrite⟩
+        ⟨m, (next.mapSimpleIOData (· max)).map (· max), simpleIOOut.set pin 0, waitingToWrite⟩
       | _ => s
 
 section

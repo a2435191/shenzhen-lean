@@ -4,11 +4,11 @@
 
 -- `ReadWrite δ α`
 -- `δ`: type of data, like `Integer` or `SimpleIOData`
-inductive ReadWrite (δ : Type) : Type v → Type _
-| pure (a : α)                        : ReadWrite δ α
-| write (d : δ) (a : α)               : ReadWrite δ α
-| sleep (n : Nat) (h : n ≠ 0) (a : α) : ReadWrite δ α -- We probably don't need the `(a : α)` state for sleeps but it's a nice example
-| read (next : ReadWrite δ (δ → α))   : ReadWrite δ α
+inductive ReadWrite : Type → Type u → Type _
+| pure (a : α)                                    : ReadWrite δ α
+| write (d : δ) (a : α)                         : ReadWrite δ α
+| sleep (n : Nat) (h : n ≠ 0) (a : α)             : ReadWrite δ α
+| read (next : ReadWrite (Int → δ) (Int → α))   : ReadWrite δ α
 
 namespace ReadWrite
 
@@ -18,6 +18,12 @@ def map (f : α → β) : ReadWrite δ α → ReadWrite δ β
   | .sleep n h a => .sleep n h (f a)
   | .read next => .read <| map (f ∘ ·) next
 
+def mapData : ReadWrite δ α → ReadWrite (Int → δ) α
+  | .pure a => .pure a
+  | .write d a => .write (fun _ => d) a
+  | .sleep n h a => .sleep n h a
+  | .read next => .read (mapData next)
+
 @[simp]
 theorem sizeOf_map_eq_sizeOf {f : α → β} {x : ReadWrite δ α} : sizeOf (map f x) = sizeOf x := by
   induction x generalizing β <;> simp_all [map]
@@ -26,9 +32,9 @@ def _root_.Function.swap (f : α → β → γ) : β → α → γ :=
   fun b a => f a b
 
 /-- Apply the terminal constructor `ofPure` to states that have `.pure` as their terminal constructor. -/
-def tryDeep (ofPure : {τ : Type u} → τ → ReadWrite δ τ) : ReadWrite δ α → ReadWrite δ α
+def tryDeep (ofPure : ∀ {τ : Type u}, τ → ReadWrite δ τ) : ReadWrite δ α → ReadWrite δ α
   | .pure a => ofPure a
-  | .read next => .read (tryDeep ofPure next)
+  | .read next => .read (tryDeep (mapData ∘ ofPure) next)
   | other => other
 
 -- Get `f ← mf`, then apply it to `a ← (ma ())`. If `f` and `x` both write, keep the write from `f`.
@@ -37,7 +43,7 @@ def seq (mf : ReadWrite δ (α → β)) (ma : Unit → ReadWrite δ α) : ReadWr
   | .pure f => map f (ma ())
   | .write d f => tryDeep (.write d) (map f (ma ()))
   | .sleep n h f => tryDeep (.sleep n h) (map f (ma ()))
-  | .read nextF => .read (seq (map Function.swap nextF) ma)
+  | .read nextF => .read (seq (map Function.swap nextF) (mapData ∘ ma))
 termination_by sizeOf mf
 
 instance : Applicative (ReadWrite δ) where
@@ -49,6 +55,11 @@ section
 
 variable {α β : Type u} {f : α → β} {ofPure ofPure' : ∀ {τ : Type u}, τ → ReadWrite δ τ} {x : ReadWrite δ α}
 
+theorem map_mapData_comm {f : α → β} : map f (mapData x) = mapData (map f x) := by
+  induction x generalizing β <;> try rfl
+  rename_i ih
+  simp [mapData, map, ih]
+
 theorem map_tryDeep {α : Type u} {β : Type u} {x : ReadWrite δ α} {f : α → β}
   (map_ofPure : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
     : map f (tryDeep ofPure x) = tryDeep ofPure (map f x) := by
@@ -57,6 +68,8 @@ theorem map_tryDeep {α : Type u} {β : Type u} {x : ReadWrite δ α} {f : α �
   · simp only [tryDeep, map]
     rename_i ih
     rw [ih]
+    intros
+    simp only [Function.comp_apply, map_mapData_comm, map_ofPure]
 
 theorem tryDeep_of_not_pure
     (hx : match x with | .pure _ | .read _ => False | _ => True) : tryDeep ofPure x = x := by
@@ -71,6 +84,9 @@ theorem tryDeep_idempotent
   · simp only [tryDeep]
     rename_i next ih
     rw [ih]
+    intros
+    simp
+    sorry
 
 theorem tryDeep_idempotent'
     (hf : ∀ {α'} (a : α'), match ofPure a with | .pure _ | .read _ => False | _ => True)

@@ -5,51 +5,51 @@ import Shenzhen.SimpleIOData
   We also record reads and writes from simple I/O pins, although they don't block.
   - `ξ` is the type of *X*Bus pins.
   - `ι` is the type of simple *I*/O pins.-/
-inductive IOEffects (ξ : Type u) (ι : Type v) : Type x → Type _
+inductive IOEffects (ξ : Type u) (ι : Type v) : Type → Type → Type w → Type _
 /-- Just return a value immediately, without doing any effects.
   This is a final state (no more effects after this point, i.e.
   no constructor parameters of type `IOEffects`). -/
-| pure (a : α)                                                     : IOEffects ξ ι α
+| pure (a : α)                                                     : IOEffects ξ ι δ₁ δ₂ α
 /-- Read a value (possibly blocking) from pin `pin`, and then do
   something with it. That function
   (the `Integer → α` part) is wrapped in another `IOEffects`
   representing the next state. -/
-| xBusRead (pin : ξ) (next : IOEffects ξ ι (Integer → α))          : IOEffects ξ ι α
+| xBusRead (pin : ξ) (next : IOEffects ξ ι (Integer → δ₁) δ₂ (Integer → α))          : IOEffects ξ ι δ₁ δ₂ α
 /-- `d` is some data to be thereafter written out of `outPin`
   (also blocking), and `next` is the state immediately after
   the write.
   Note that this is a final state since `next` is pure. -/
-| xBusWrite (outPin : ξ) (d : Integer) (next : α)                  : IOEffects ξ ι α
+| xBusWrite (outPin : ξ) (d : δ₁) (next : α)                  : IOEffects ξ ι δ₁ δ₂ α
 /-- Wait until the value from XBus pin `pin` arrives,but don't
   consume the value). Then `next` is the state after the value
   arrives. This is used to implement the `slx` instruction.
 
   Note that this is a final state. -/
-| xBusPoll (pin : ξ) (next : α)                                    : IOEffects ξ ι α
+| xBusPoll (pin : ξ) (next : α)                                    : IOEffects ξ ι δ₁ δ₂ α
 /-- Like `xBusRead` but non-blocking. -/
-| simpleIORead (pin : ι) (next : IOEffects ξ ι (SimpleIOData → α)) : IOEffects ξ ι α
+| simpleIORead (pin : ι) (next : IOEffects ξ ι δ₁ (SimpleIOData → δ₂) (SimpleIOData → α)) : IOEffects ξ ι δ₁ δ₂ α
 /-- Like `xBusWrite` but non-blocking. Note that this is a
   final state. -/
-| simpleIOWrite (outPin : ι) (d : SimpleIOData) (next : α)         : IOEffects ξ ι α
+| simpleIOWrite (outPin : ι) (d : δ₂) (next : α)         : IOEffects ξ ι δ₁ δ₂ α
 /-- Wait for `n` time units. `n ≠ 0` because `pure` already exists.
   `next` is the (pure) state after we are done waiting, so
   this is a final state. -/
-| sleep (n : Nat) (h : n ≠ 0) (next : α)                           : IOEffects ξ ι α
+| sleep (n : Nat) (h : n ≠ 0) (next : α)                           : IOEffects ξ ι δ₁ δ₂ α
 
 namespace IOEffects
 
 /-! ## Misc. functions -/
 
-instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
+instance [Inhabited α] : Inhabited (IOEffects ξ ι δ₁ δ₂ α) :=
   ⟨.pure default⟩
 
 /-- In `sleep` or `xBusPoll` state -/
-abbrev isSleep : IOEffects ξ ι α → Bool
+abbrev isSleep : IOEffects ξ ι δ₁ δ₂ α → Bool
 | .sleep .. | .xBusPoll .. => true
 | _ => false
 
 /-- Advance `.sleep` states by one time unit. Leave `.xBusPoll` states alone. -/
-def advanceSleep (fx : IOEffects ξ ι α) (h : fx.isSleep = true) : IOEffects ξ ι α :=
+def advanceSleep (fx : IOEffects ξ ι δ₁ δ₂ α) (h : fx.isSleep = true) : IOEffects ξ ι δ₁ δ₂ α :=
   match fx with
   | .xBusPoll .. => fx
   | .sleep 1 _ next => .pure next
@@ -58,7 +58,7 @@ def advanceSleep (fx : IOEffects ξ ι α) (h : fx.isSleep = true) : IOEffects �
 /-! ## `map` and `seq` -/
 
 @[simp]
-def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
+def map (f : α → β) : IOEffects ξ ι δ₁ δ₂ α → IOEffects ξ ι δ₁ δ₂ β
   | .pure a => .pure (f a)
   | .xBusRead p next => .xBusRead p (map (f ∘ ·) next)         -- recurse
   | .xBusWrite p d a => .xBusWrite p d (f a)
@@ -69,22 +69,44 @@ def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
 
 /-! Needed for proof of termination of `seq` below -/
 @[simp]
-theorem sizeOf_map_eq_sizeOf {f : α → β} {x : IOEffects ξ ι α} : sizeOf (map f x) = sizeOf x := by
+theorem sizeOf_map_eq_sizeOf {f : α → β} {x : IOEffects ξ ι δ₁ δ₂ α} : sizeOf (map f x) = sizeOf x := by
   induction x generalizing β <;> simp_all [map]
+
+
+
+@[simp]
+def mapXBusData (f : δ₁ → δ₁') : IOEffects ξ ι δ₁ δ₂ α → IOEffects ξ ι δ₁' δ₂ α
+  | .pure a => .pure a
+  | .xBusRead p next => .xBusRead p (mapXBusData (f ∘ ·) next)         -- recurse
+  | .xBusWrite p d a => .xBusWrite p (f d) a
+  | .xBusPoll p a => .xBusPoll p a
+  | .simpleIORead p next => .simpleIORead p (mapXBusData f next) -- recurse
+  | .simpleIOWrite p d a => .simpleIOWrite p d a
+  | .sleep n h a => .sleep n h a
+
+@[simp]
+def mapSimpleIOData (f : δ₂ → δ₂') : IOEffects ξ ι δ₁ δ₂ α → IOEffects ξ ι δ₁ δ₂' α
+  | .pure a => .pure a
+  | .xBusRead p next => .xBusRead p (mapSimpleIOData f next)         -- recurse
+  | .xBusWrite p d a => .xBusWrite p d a
+  | .xBusPoll p a => .xBusPoll p a
+  | .simpleIORead p next => .simpleIORead p (mapSimpleIOData (f ∘ ·) next) -- recurse
+  | .simpleIOWrite p d a => .simpleIOWrite p (f d) a
+  | .sleep n h a => .sleep n h a
 
 /-- Apply the final constructor `ofPure` to states that have `.pure` as their final constructor. -/
 @[simp]
-def tryDeep (ofPure : {τ : Type u} → τ → IOEffects ξ ι τ) : IOEffects ξ ι α → IOEffects ξ ι α
+def tryDeep (ofPure : {τ : Type u} → τ → IOEffects ξ ι δ₁ δ₂ τ) : IOEffects ξ ι δ₁ δ₂ α → IOEffects ξ ι δ₁ δ₂ α
   | .pure a => ofPure a
   -- Non-final constructors just recurse
-  | .xBusRead pin next => .xBusRead pin (tryDeep ofPure next)
-  | .simpleIORead pin next => .simpleIORead pin (tryDeep ofPure next)
+  | .xBusRead pin next => .xBusRead pin (tryDeep (mapXBusData (fun d _ => d) ∘ ofPure) next)
+  | .simpleIORead pin next => .simpleIORead pin (tryDeep (mapSimpleIOData (fun d _ => d) ∘ ofPure) next)
   -- All non-`pure` final constructors ignore
   | other => other
 
 /-- Get `f ← mf`, then apply it to `a ← (ma ())`. If `f` and `x` both write, keep the write from `f`. -/
 @[simp]
-def seq (mf : IOEffects ξ ι (α → β)) (ma : Unit → IOEffects ξ ι α) : IOEffects ξ ι β :=
+def seq (mf : IOEffects ξ ι δ₁ δ₂ (α → β)) (ma : Unit → IOEffects ξ ι δ₁ δ₂ α) : IOEffects ξ ι δ₁ δ₂ β :=
   match mf with
   | .pure f => map f (ma ())
   -- Non-pure final constructors
@@ -97,102 +119,115 @@ def seq (mf : IOEffects ξ ι (α → β)) (ma : Unit → IOEffects ξ ι α) : 
   | .sleep n h f => tryDeep (.sleep n h) (map f (ma ()))
   -- The recursive a.k.a. non-final a.k.a. read constructors just recurse.
   -- I think the best way to do this is map `Function.swap` across `next` first
-  | .xBusRead pin next => .xBusRead pin (seq (map Function.swap next) ma)
-  | .simpleIORead pin next => .simpleIORead pin (seq (map Function.swap next) ma)
+  | .xBusRead pin next => .xBusRead pin (seq (map Function.swap next) (mapXBusData (fun d _ => d) ∘ ma))
+  | .simpleIORead pin next => .simpleIORead pin (seq (map Function.swap next) (mapSimpleIOData (fun d _ => d) ∘ ma))
 termination_by sizeOf mf -- hint
 
-/-! ## Now we prove `seq` and `map` are lawful
-  This approach was tested in `ReadWrite.lean`. Avoid the notation for `seq`, `pure`, and `bind`
-  here because unfolding it proofs is annoying. -/
+instance : Applicative (IOEffects ξ ι δ₁ δ₂) where
+  pure := .pure
+  seq := .seq
 
-/-! ### First, helper theorems showing `tryDeep` respects `seq` and `map` and is idempotent. -/
-section
+-- /-! ## Now we prove `seq` and `map` are lawful
+--   This approach was tested in `ReadWrite.lean`. Avoid the notation for `seq`, `pure`, and `bind`
+--   here because unfolding it proofs is annoying. -/
 
-variable {α β : Type u} {f : α → β} {ofPure ofPure' : ∀ {τ : Type u}, τ → IOEffects ξ ι τ} {x : IOEffects ξ ι α}
+-- /-! ### First, helper theorems showing `tryDeep` respects `seq` and `map` and is idempotent. -/
+-- section
 
-theorem map_tryDeep
-  (map_ofPure : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
-    : map f (tryDeep ofPure x) = tryDeep ofPure (map f x) := by
-  induction x generalizing β
-  all_goals first
-    | simp [map_ofPure]; done -- final constructors
-    | simp only [map, tryDeep]; rename_i ih; rw [ih] -- reads
+-- variable {α β : Type u} {f : α → β} {ofPure ofPure' : ∀ {τ : Type u}, τ → IOEffects ξ ι τ} {x : IOEffects ξ ι α}
 
-theorem tryDeep_idempotent
-    (hf : ∀ {α'} (a : α'), tryDeep ofPure' (ofPure a) = ofPure a)
-    : tryDeep ofPure' (tryDeep ofPure x) = tryDeep ofPure x := by
-  induction x
-  all_goals first
-    | rfl -- non-pure final constructors
-    | simp only [tryDeep]; apply hf; done -- pure
-    | simp only [tryDeep]; rename_i _ ih; rw [ih] -- reads
+-- theorem map_tryDeep
+--   (map_ofPure : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
+--     : map f (tryDeep ofPure x) = tryDeep ofPure (map f x) := by
+--   induction x generalizing β
+--   all_goals first
+--     | simp [map_ofPure]; done -- final constructors
+--     | simp only [map, tryDeep]; rename_i ih; rw [ih] -- reads
 
-theorem seq_tryDeep {α} {β} {g : IOEffects ξ ι (α → β)} {x : IOEffects ξ ι α}
-    (hseq_ofPure : ∀ {τ τ' : Type u} (t : IOEffects ξ ι τ) (h : τ → τ'), ((ofPure h).seq fun _ => t) = tryDeep ofPure (map h t))
-    (hmap : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
-    : seq (tryDeep ofPure g) (fun _ => x) = tryDeep ofPure (seq g fun _ => x) := by
-  -- can't use induction tactic because `g` is parametrized by `α → β`, a function type
-  cases g
-  all_goals first
-    | simp [tryDeep_idempotent]; done -- non-pure final constructors
-    | simp only [tryDeep, seq]; apply hseq_ofPure -- pure
-    | simp only [tryDeep, seq]; rw [map_tryDeep hmap, seq_tryDeep] <;> assumption -- reads (recurse)
+-- theorem tryDeep_idempotent
+--     (hf : ∀ {α'} (a : α'), tryDeep ofPure' (ofPure a) = ofPure a)
+--     : tryDeep ofPure' (tryDeep ofPure x) = tryDeep ofPure x := by
+--   induction x
+--   all_goals first
+--     | rfl -- non-pure final constructors
+--     | simp only [tryDeep]; apply hf; done -- pure
+--     | simp only [tryDeep]; rename_i _ ih; rw [ih] -- reads
 
-end
+-- theorem seq_tryDeep {α} {β} {g : IOEffects ξ ι (α → β)} {x : IOEffects ξ ι α}
+--     (hseq_ofPure : ∀ {τ τ' : Type u} (t : IOEffects ξ ι τ) (h : τ → τ'), ((ofPure h).seq fun _ => t) = tryDeep ofPure (map h t))
+--     (hmap : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
+--     : seq (tryDeep ofPure g) (fun _ => x) = tryDeep ofPure (seq g fun _ => x) := by
+--   -- can't use induction tactic because `g` is parametrized by `α → β`, a function type
+--   cases g
+--   all_goals first
+--     | simp [tryDeep_idempotent]; done -- non-pure final constructors
+--     | simp only [tryDeep, seq]; apply hseq_ofPure -- pure
+--     | simp only [tryDeep, seq]; rw [map_tryDeep hmap, seq_tryDeep] <;> assumption -- reads (recurse)
 
-/-! ### Now we prove the laws needed for the `LawfulSeq` instance -/
-section
+-- end
 
--- Trivial but needed below
-theorem map_pure (f : α → β) (x : α) : map f (pure (ξ := ξ) (ι := ι) x) = pure (f x) :=
-  rfl
+-- /-! ### Now we prove the laws needed for the `LawfulSeq` instance -/
+-- section
 
-theorem comp_map {α β γ} (g : α → β) (h : β → γ) (a : IOEffects ξ ι α)
-    : map (h ∘ g) a = map h (map g a) := by
-  induction a generalizing β γ
-  all_goals first
-    | rfl -- all the final constructors
-    | rename_i ih; simp only [map] at ⊢ ih; congr 1; apply ih (g ∘ ·) (h ∘ ·) -- reads
+-- -- Trivial but needed below
+-- theorem map_pure (f : α → β) (x : α) : map f (pure (ξ := ξ) (ι := ι) x) = pure (f x) :=
+--   rfl
 
-theorem pure_seq (g : α → β) (a : IOEffects ξ ι α) : (pure g).seq (fun _ => a) = map g a := by
-  cases a <;> simp [seq]
+-- theorem comp_map {α β γ} (g : α → β) (h : β → γ) (a : IOEffects ξ ι α)
+--     : map (h ∘ g) a = map h (map g a) := by
+--   induction a generalizing β γ
+--   all_goals first
+--     | rfl -- all the final constructors
+--     | rename_i ih; simp only [map] at ⊢ ih; congr 1; apply ih (g ∘ ·) (h ∘ ·) -- reads
 
-theorem seq_pure {α β} (g : IOEffects ξ ι (α → β)) (a : α)
-    : seq g (fun _ => pure a) = map (· a) g := by
-  -- Again, have to recurse instead of using `induction` tactic
-  cases g
-  all_goals first
-    | simp; done -- final constructors
-    | simp only [seq, map]; congr 1; rw [seq_pure, ←comp_map]; rfl -- reads (recurse)
+-- theorem pure_seq (g : α → β) (a : IOEffects ξ ι α) : (pure g).seq (fun _ => a) = map g a := by
+--   cases a <;> simp [seq]
 
-theorem map_seq_r {α β γ : Type u} {f : β → γ} {g : IOEffects ξ ι (α → β)} {a : IOEffects ξ ι α}
-    : map f (seq g fun _ => a) = seq (map (f ∘ ·) g) fun _ => a := by
-  cases g
-  all_goals first
-    | simp [comp_map, map_tryDeep]; done -- final constructors
-    | simp only [map, seq]; congr 1; rw [map_seq_r, ←comp_map, ←comp_map]; rfl -- reads (recurse)
+-- theorem seq_pure {α β} (g : IOEffects ξ ι (α → β)) (a : α)
+--     : seq g (fun _ => pure a) = map (· a) g := by
+--   -- Again, have to recurse instead of using `induction` tactic
+--   cases g
+--   all_goals first
+--     | simp; done -- final constructors
+--     | simp only [seq, map]; congr 1; rw [seq_pure, ←comp_map]; rfl -- reads (recurse)
 
-theorem seq_assoc {α β γ : Type u} (a : IOEffects ξ ι α) (g : IOEffects ξ ι (α → β)) (h : IOEffects ξ ι (β → γ)) :
-    seq h (fun _ => seq g fun _ => a) = ((map Function.comp h).seq fun _ => g).seq fun _ => a := by
-  cases h <;> simp only [seq, map]
-  all_goals first
-    | simp [map_seq_r, seq_tryDeep]; done -- final constructors
-    | rw [map_seq_r, ←comp_map, seq_assoc]; simp only [←comp_map]; rfl -- reads (recurse)
+-- theorem map_seq_r {α β γ : Type u} {f : β → γ} {g : IOEffects ξ ι (α → β)} {a : IOEffects ξ ι α}
+--     : map f (seq g fun _ => a) = seq (map (f ∘ ·) g) fun _ => a := by
+--   cases g
+--   all_goals first
+--     | simp [comp_map, map_tryDeep]; done -- final constructors
+--     | simp only [map, seq]; congr 1; rw [map_seq_r, ←comp_map, ←comp_map]; rfl -- reads (recurse)
 
-instance : Applicative (IOEffects ξ ι) where
-  pure := pure
-  seq := seq
-  map := map
+-- theorem seq_assoc {α β γ : Type u} (a : IOEffects ξ ι α) (g : IOEffects ξ ι (α → β)) (h : IOEffects ξ ι (β → γ)) :
+--     seq h (fun _ => seq g fun _ => a) = ((map Function.comp h).seq fun _ => g).seq fun _ => a := by
+--   cases h <;> simp only [seq, map]
+--   all_goals first
+--     | simp [map_seq_r, seq_tryDeep]; done -- final constructors
+--     | rw [map_seq_r, ←comp_map, seq_assoc]; simp only [←comp_map]; rfl -- reads (recurse)
 
-instance : LawfulApplicative (IOEffects ξ ι) where
-  map_const := rfl
-  id_map a := by induction a <;> first | rfl | simpa [Functor.map]
-  map_pure := map_pure
+-- instance : Applicative (IOEffects ξ ι) where
+--   pure := pure
+--   seq := seq
+--   map := map
 
-  seqLeft_eq a b := rfl
-  seqRight_eq a b := rfl
-  pure_seq := pure_seq
-  seq_pure := seq_pure
-  seq_assoc := seq_assoc
+-- instance : LawfulApplicative (IOEffects ξ ι) where
+--   map_const := rfl
+--   id_map a := by induction a <;> first | rfl | simpa [Functor.map]
+--   map_pure := map_pure
 
-end
+--   seqLeft_eq a b := rfl
+--   seqRight_eq a b := rfl
+--   pure_seq := pure_seq
+--   seq_pure := seq_pure
+--   seq_assoc := seq_assoc
+
+-- end
+
+end IOEffects
+
+abbrev IOEffects' (ξ : Type u) (ι : Type v) (α : Type w) :=
+  IOEffects ξ ι Integer SimpleIOData α
+
+instance : Applicative (IOEffects' ξ ι) := inferInstance
+
+namespace IOEffects'
