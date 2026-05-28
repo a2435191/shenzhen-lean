@@ -3,53 +3,55 @@
   effects. For now kept as reference -/
 
 -- `ReadWrite δ α`
--- `δ`: type of data, like `Integer` or `SimpleIOData`
-inductive ReadWrite (δ : Type) : Type v → Type _
-| pure (a : α)                        : ReadWrite δ α
-| write (d : δ) (a : α)               : ReadWrite δ α
-| sleep (n : Nat) (h : n ≠ 0) (a : α) : ReadWrite δ α -- We probably don't need the `(a : α)` state for sleeps but it's a nice example
-| read (next : ReadWrite δ (δ → α))   : ReadWrite δ α
+-- `Nat` represents read/written data, like `Integer` or `SimpleIOData`.
+inductive ReadWrite : Type v → Type _
+| pure (a : α)                        : ReadWrite α
+| write (a : α)               : ReadWrite α
+| sleep (n : Nat) (h : n ≠ 0) (a : α) : ReadWrite α
+| read (next : ReadWrite (Nat → Nat × α))   : ReadWrite α
 
+#check show ReadWrite String from
+  .read <| .read <| .write sorry
 namespace ReadWrite
 
-def map (f : α → β) : ReadWrite δ α → ReadWrite δ β
+def map (f : α → β) : ReadWrite α → ReadWrite β
   | .pure a => .pure (f a)
-  | .write d a => .write d (f a)
+  | .write a => .write (f a)
   | .sleep n h a => .sleep n h (f a)
-  | .read next => .read <| map (f ∘ ·) next
+  | .read next => .read <| map (fun g d => ((g d).1, f (g d).2)) next
 
 @[simp]
-theorem sizeOf_map_eq_sizeOf {f : α → β} {x : ReadWrite δ α} : sizeOf (map f x) = sizeOf x := by
+theorem sizeOf_map_eq_sizeOf {f : α → β} {x : ReadWrite α} : sizeOf (map f x) = sizeOf x := by
   induction x generalizing β <;> simp_all [map]
 
 def _root_.Function.swap (f : α → β → γ) : β → α → γ :=
   fun b a => f a b
 
 /-- Apply the terminal constructor `ofPure` to states that have `.pure` as their terminal constructor. -/
-def tryDeep (ofPure : {τ : Type u} → τ → ReadWrite δ τ) : ReadWrite δ α → ReadWrite δ α
+def tryDeep (ofPure : {τ : Type u} → τ → ReadWrite τ) : ReadWrite α → ReadWrite α
   | .pure a => ofPure a
   | .read next => .read (tryDeep ofPure next)
   | other => other
 
 -- Get `f ← mf`, then apply it to `a ← (ma ())`. If `f` and `x` both write, keep the write from `f`.
-def seq (mf : ReadWrite δ (α → β)) (ma : Unit → ReadWrite δ α) : ReadWrite δ β :=
+def seq (mf : ReadWrite (α → β)) (ma : Unit → ReadWrite α) : ReadWrite β :=
   match mf with
   | .pure f => map f (ma ())
-  | .write d f => tryDeep (.write d) (map f (ma ()))
+  | .write f => tryDeep .write (map f (ma ()))
   | .sleep n h f => tryDeep (.sleep n h) (map f (ma ()))
-  | .read nextF => .read (seq (map Function.swap nextF) ma)
+  | .read nextF => .read (seq (map (fun f a d => ((f d).1, (f d).2 a)) nextF) ma)
 termination_by sizeOf mf
 
-instance : Applicative (ReadWrite δ) where
+instance : Applicative ReadWrite where
   pure := pure
   map := map
   seq := seq
 
 section
 
-variable {α β : Type u} {f : α → β} {ofPure ofPure' : ∀ {τ : Type u}, τ → ReadWrite δ τ} {x : ReadWrite δ α}
+variable {α β : Type u} {f : α → β} {ofPure ofPure' : ∀ {τ : Type u}, τ → ReadWrite τ} {x : ReadWrite α}
 
-theorem map_tryDeep {α : Type u} {β : Type u} {x : ReadWrite δ α} {f : α → β}
+theorem map_tryDeep {α : Type u} {β : Type u} {x : ReadWrite α} {f : α → β}
   (map_ofPure : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
     : map f (tryDeep ofPure x) = tryDeep ofPure (map f x) := by
   induction x generalizing β <;> try rfl
@@ -77,8 +79,8 @@ theorem tryDeep_idempotent'
     : tryDeep ofPure' (tryDeep ofPure x) = tryDeep ofPure x :=
   tryDeep_idempotent fun {α'} a => tryDeep_of_not_pure (by grind)
 
-theorem seq_tryDeep {α : Type u} {β} {g : ReadWrite δ (α → β)} {x : ReadWrite δ α}
-    (hseq_ofPure : ∀ {τ τ' : Type u} (t : ReadWrite δ τ) (h : τ → τ'), ((ofPure h).seq fun _ => t) = tryDeep ofPure (map h t))
+theorem seq_tryDeep {α : Type u} {β} {g : ReadWrite (α → β)} {x : ReadWrite α}
+    (hseq_ofPure : ∀ {τ τ' : Type u} (t : ReadWrite τ) (h : τ → τ'), ((ofPure h).seq fun _ => t) = tryDeep ofPure (map h t))
     (hmap : ∀ {τ τ' : Type u} (t : τ) (h : τ → τ'), map h (ofPure t) = ofPure (h t))
     : seq (tryDeep ofPure g) (fun _ => x) = tryDeep ofPure (seq g fun _ => x) := by
   cases g
@@ -92,24 +94,24 @@ end
 
 section
 
-theorem map_pure (f : α → β) (x : α) : map f (pure (δ := δ) x) = pure (f x) :=
+theorem map_pure (f : α → β) (x : α) : map f (pure x) = pure (f x) :=
   rfl
 
-theorem comp_map {α β γ} (g : α → β) (h : β → γ) (a : ReadWrite δ α)
+theorem comp_map {α β γ} (g : α → β) (h : β → γ) (a : ReadWrite α)
     : map (h ∘ g) a = map h (map g a) := by
   induction a generalizing β γ
   · rfl
   · simp [map]
   · rfl
-  · rename_i ih
+  · rename_i next ih
     simp only [map] at ⊢ ih
     congr 1
-    apply ih (g ∘ ·) (h ∘ ·)
+    exact ih (fun g_1 d => ((g_1 d).fst, g (g_1 d).snd)) (fun (g : Nat → Nat × β) d => ((g d).fst, h (g d).snd))
 
-theorem pure_seq (g : α → β) (a : ReadWrite δ α) : (pure g).seq (fun _ => a) = map g a := by
+theorem pure_seq (g : α → β) (a : ReadWrite α) : (pure g).seq (fun _ => a) = map g a := by
   cases a <;> simp [seq]
 
-theorem seq_pure {α β} (g : ReadWrite δ (α → β)) (a : α)
+theorem seq_pure {α β} (g : ReadWrite (α → β)) (a : α)
     : seq g (fun _ => pure a) = map (· a) g := by
   cases g
   · simp [seq, map]
@@ -121,7 +123,7 @@ theorem seq_pure {α β} (g : ReadWrite δ (α → β)) (a : α)
     rw [seq_pure, ←comp_map]
     rfl
 
-theorem map_seq_r {α β γ : Type u} {f : β → γ} {g : ReadWrite δ (α → β)} {a : ReadWrite δ α}
+theorem map_seq_r {α β γ : Type u} {f : β → γ} {g : ReadWrite (α → β)} {a : ReadWrite α}
     : map f (seq g fun _ => a) = seq (map (f ∘ ·) g) fun _ => a := by
   cases g
   · simp [pure_seq, map_pure, comp_map]
@@ -132,7 +134,7 @@ theorem map_seq_r {α β γ : Type u} {f : β → γ} {g : ReadWrite δ (α → 
     rw [map_seq_r, ←comp_map, ←comp_map]
     rfl
 
-theorem seq_assoc {α β γ : Type u} (a : ReadWrite δ α) (g : ReadWrite δ (α → β)) (h : ReadWrite δ (β → γ)) :
+theorem seq_assoc {α β γ : Type u} (a : ReadWrite α) (g : ReadWrite (α → β)) (h : ReadWrite (β → γ)) :
     seq h (fun _ => seq g fun _ => a) = ((map Function.comp h).seq fun _ => g).seq fun _ => a := by
   cases h <;> simp only [seq, map]
   · simp [map_seq_r]
@@ -142,7 +144,7 @@ theorem seq_assoc {α β γ : Type u} (a : ReadWrite δ α) (g : ReadWrite δ (�
     simp only [←comp_map]
     rfl
 
-instance : LawfulApplicative (ReadWrite δ) where
+instance : LawfulApplicative ReadWrite where
   map_const := rfl
   id_map a := by
     induction a <;> try rfl
