@@ -74,22 +74,22 @@ def Reads.seq (mf : Reads ξ ι (α → β)) (ma : Unit → Reads ξ ι α) : Re
   | .simpleIORead pin next => .simpleIORead pin (seq (map Function.swap next) ma)
 termination_by sizeOf mf
 
-private def seqReads (mf : Reads ξ ι (α → β)) (ma : IOEffects ξ ι α) : IOEffects ξ ι β :=
+-- TODO: try to avoid evaluating `ma ()`, maybe change which side we ignore in `seq`
+
+/-- Combine `mf` with the *reads* of `ma`, discarding any extra leaf information from `ma` -/
+private def seqReads (mf : Reads ξ ι (α → β)) (ma : IOEffects ξ ι α) : Reads ξ ι β :=
   match ma with
-  | .ofReads reads => .ofReads (mf.seq fun () => reads)
-  | .xBusWrite p reads => .xBusWrite p ((mf.map Prod.mapSnd).seq fun () => reads)
-  | .xBusPoll p reads => .xBusPoll p (mf.seq fun () => reads)
-  | .simpleIOWrite p reads => .simpleIOWrite p ((mf.map Prod.mapSnd).seq fun () => reads)
-  | .sleep reads => .sleep ((mf.map Prod.mapSnd).seq fun () => reads)
+  | .ofReads reads | .xBusPoll _ reads => mf.seq fun () => reads
+  | .xBusWrite _ reads | .simpleIOWrite _ reads | .sleep reads => mf.seq fun () => reads.map Prod.snd
 
 /-- If `mf` and `ma ()` are both leaf effects, ignore the leaf effects of the latter. -/
 def seq (mf : IOEffects ξ ι (α → β)) (ma : Unit → IOEffects ξ ι α) : IOEffects ξ ι β :=
   match mf with
-  | .ofReads rf => seqReads rf (ma ())
-  | .xBusWrite p reads => .xBusWrite p sorry
-  | .xBusPoll pin reads => sorry
-  | .simpleIOWrite p reads => sorry
-  | .sleep reads => sorry
+  | .ofReads rf => .ofReads <| seqReads rf (ma ())
+  | .xBusWrite p rf => .xBusWrite p (seqReads (rf.map fun (d, f) a => (d, f a)) (ma ()))
+  | .xBusPoll pin rf => .xBusPoll pin <| seqReads rf (ma ())
+  | .simpleIOWrite p rf => .simpleIOWrite p (seqReads (rf.map fun (d, f) a => (d, f a)) (ma ()))
+  | .sleep rf => .sleep (seqReads (rf.map fun (n, f) a => (n, f a)) (ma ()))
 
 instance : Applicative (IOEffects ξ ι) where
   map := map
