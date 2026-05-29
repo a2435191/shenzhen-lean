@@ -166,7 +166,7 @@ where
     -- | _ => modify (advanceIP flags)
 
   /-- Handle everything except for updating the IP -/
-  impl : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) := fun s =>
+  impl (s : InstructionState m) : IOEffects XBus SimpleIO (InstructionState m) :=
     match instr with
     | .add ri =>
     -- TODO increase IP
@@ -177,28 +177,45 @@ where
       | .xBus x => .ofReads <| .xBusRead x <| .pure fun d => s.modifyAcc (· + d)
       | .simpleIO i => .ofReads <| .simpleIORead i <| .pure fun d => s.modifyAcc (· + d)
     | .mov src dst =>
+      let d : IOEffects XBus SimpleIO Integer := .ofReads <|
+        match src with
+        | .int n => .pure n
+        | .null => .pure 0
+        | .internal .acc => .pure s.acc
+        | .xBus x => .xBusRead x (.pure id)
+        | .simpleIO i => .simpleIORead i (.pure SimpleIOData.toInteger)
+      let writeEffect : IOEffects XBus SimpleIO (Integer → InstructionState m) :=
+        match dst with
+        | .null => .pure fun _ => s -- keep the state the same
+        | .internal .acc => .pure fun d => { s with acc := d }
+        | .xBus x => .xBusWrite x (.pure sorry) -- TODO what to put here?
+        | .simpleIO i => sorry
+
+      writeEffect <*> d
+
+
       -- TODO increase IP
-      match src, dst with
-      | .int n, .null => .pure s
-      | .int n, .internal .acc => .pure ({ s with acc := n })
-      | .int n, .xBus x => .xBusWrite x (.pure (n, { s with acc := n }))
-      | .int n, .simpleIO i => .simpleIOWrite i (.pure (n.toSimpleIOData, { s with acc := n }))
-      | .null, .null => .pure s
-      | .null, .internal .acc => .pure ({ s with acc := 0 })
-      | .null, .xBus x => .xBusWrite x (.pure (0, { s with acc := 0}))
-      | .null, .simpleIO i => .simpleIOWrite i (.pure (0, { s with acc := 0 }))
-      | .internal .acc, .null => .pure s
-      | .internal .acc, .internal .acc => .pure { s with acc := s.acc }
-      | .internal .acc, .xBus x => .xBusWrite x (.pure (s.acc, s))
-      | .internal .acc, .simpleIO i => .simpleIOWrite i (.pure (s.acc.toSimpleIOData, s))
-      | .xBus x, .null => .ofReads (.xBusRead x (.pure fun _ => s))
-      | .xBus x, .internal .acc => .ofReads (.xBusRead x (.pure fun d => { s with acc := d }))
-      | .xBus x₁, .xBus x₂ => .xBusWrite x₂ <| .xBusRead x₁ (.pure fun d => (d, s))
-      | .xBus x, .simpleIO i => .simpleIOWrite i <| .xBusRead x (.pure fun d => (d.toSimpleIOData, s))
-      | .simpleIO i, .null => .ofReads (.simpleIORead i (.pure fun _ => s))
-      | .simpleIO i, .internal .acc => .ofReads (.simpleIORead i (.pure fun d => { s with acc := d }))
-      | .simpleIO i, .xBus x => .xBusWrite x (.simpleIORead i (.pure (·.toInteger, s)))
-      | .simpleIO i₁, .simpleIO i₂ => .simpleIOWrite i₂ (.simpleIORead i₁ (.pure (·, s)))
+      -- match src, dst with
+      -- | .int n, .null => .pure s
+      -- | .int n, .internal .acc => .pure ({ s with acc := n })
+      -- | .int n, .xBus x => .xBusWrite x (.pure (n, { s with acc := n }))
+      -- | .int n, .simpleIO i => .simpleIOWrite i (.pure (n.toSimpleIOData, { s with acc := n }))
+      -- | .null, .null => .pure s
+      -- | .null, .internal .acc => .pure ({ s with acc := 0 })
+      -- | .null, .xBus x => .xBusWrite x (.pure (0, { s with acc := 0}))
+      -- | .null, .simpleIO i => .simpleIOWrite i (.pure (0, { s with acc := 0 }))
+      -- | .internal .acc, .null => .pure s
+      -- | .internal .acc, .internal .acc => .pure { s with acc := s.acc }
+      -- | .internal .acc, .xBus x => .xBusWrite x (.pure (s.acc, s))
+      -- | .internal .acc, .simpleIO i => .simpleIOWrite i (.pure (s.acc.toSimpleIOData, s))
+      -- | .xBus x, .null => .ofReads (.xBusRead x (.pure fun _ => s))
+      -- | .xBus x, .internal .acc => .ofReads (.xBusRead x (.pure fun d => { s with acc := d }))
+      -- | .xBus x₁, .xBus x₂ => .xBusWrite x₂ <| .xBusRead x₁ (.pure fun d => (d, s))
+      -- | .xBus x, .simpleIO i => .simpleIOWrite i <| .xBusRead x (.pure fun d => (d.toSimpleIOData, s))
+      -- | .simpleIO i, .null => .ofReads (.simpleIORead i (.pure fun _ => s))
+      -- | .simpleIO i, .internal .acc => .ofReads (.simpleIORead i (.pure fun d => { s with acc := d }))
+      -- | .simpleIO i, .xBus x => .xBusWrite x (.simpleIORead i (.pure (·.toInteger, s)))
+      -- | .simpleIO i₁, .simpleIO i₂ => .simpleIOWrite i₂ (.simpleIORead i₁ (.pure (·, s)))
     | _ => sorry
 
   /-- Read an integer from `ri` (inside `Effects m`) -/
