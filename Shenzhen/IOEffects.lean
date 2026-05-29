@@ -1,103 +1,97 @@
 import Shenzhen.Integer
 import Shenzhen.SimpleIOData
 
+/-- `Reads ξ ι α` wraps a value of type `α` in zero or more XBus or simple I/O reads. -/
+inductive IOEffects.Reads (ξ : Type u) (ι : Type v) : Type x → Type _
+/-- Just return a value immediately, without doing any reads. -/
+| pure (a : α) : Reads ξ ι α
+/-- `xBusRead pin next` represents a computation delayed until a value `pin` can be read;
+  then `next` is the result of the computation as a function on the value read (possibly
+  wrapped in more reads). -/
+| xBusRead (pin : ξ) (next : Reads ξ ι (Integer → α)) : Reads ξ ι α
+| simpleIORead (pin : ι) (next : Reads ξ ι (SimpleIOData → α)) : Reads ξ ι α
+
 /-- `IOEffects ξ ι α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
   We also record reads and writes from simple I/O pins, although they don't block.
   - `ξ` is the type of *X*Bus pins.
   - `ι` is the type of simple *I*/O pins.-/
 inductive IOEffects (ξ : Type u) (ι : Type v) (α : Type x)
-/-- Just return a value immediately, without doing any effects. -/
-| pure (a : α)
-/-- `xBusRead pin next` represents a computation delayed until a value `d`
-  from `pin` can be read; then `next d` is the result of the computation. -/
-| xBusRead (pin : ξ) (next : Integer → IOEffects ξ ι α)
-/-- `d` is some data to be thereafter written out of `outPin`, and `next ()` is returned after the write. -/
-| xBusWrite (outPin : ξ) (d : Integer) (next : Unit → IOEffects ξ ι α)
+/-- Just do zero or more reads. -/
+| ofReads : IOEffects.Reads ξ ι α → IOEffects ξ ι α
+/-- We would like to be able to write data out of a pin (but only once, and after any reads happen).
+  `reads` represents some data (`Integer`) to be thereafter written out of `outPin`, and
+  the state (`α`) after the write. Both are wrapped in the same reads (and can depend on the values read). -/
+| xBusWrite (outPin : ξ) (reads : IOEffects.Reads ξ ι (Integer × α))
 /-- `xBusPoll pin next` represents a computation delayed until the value
   from XBus pin `pin` arrives (but without consuming the value);
-  then `next ()` is the result thereafter.
+  then `next` is the (pure) result thereafter.
   This is used to implement the `slx` instruction. -/
-| xBusPoll (pin : ξ) (next : Unit → IOEffects ξ ι α)
-| simpleIORead (pin : ι) (next : SimpleIOData → IOEffects ξ ι α)
-| simpleIOWrite (outPin : ι) (d : SimpleIOData) (next : Unit → IOEffects ξ ι α)
-/-- Wait for `n` time units. -/
-| sleep (n : Nat) (h : n ≠ 0) (next : Unit → IOEffects ξ ι α)
-
--- TODO I would really strongly prefer that these constructors not have
--- data-dependent effects, i.e. `next : IOEffects ξ ι (Integer → α)` instead
--- of `Integer → IOEffects ξ ι α`. However, I don't know how to make this work with
--- `xBusWrite` and `.simpleIOWrite`
+| xBusPoll (pin : ξ) (reads : IOEffects.Reads ξ ι α)
+/-- Like `xBusWrite` but for a simple I/O write. -/
+| simpleIOWrite (outPin : ι) (reads : IOEffects.Reads ξ ι (SimpleIOData × α))
+/-- Wait for some number of time units, represented as a `Nat`. See also `xBusWrite`. -/
+| sleep (reads : IOEffects.Reads ξ ι (Nat × α))
 
 namespace IOEffects
+
+def pure (a : α) : IOEffects ξ ι α :=
+  .ofReads (.pure a)
 
 instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
   ⟨pure default⟩
 
-instance : Pure (IOEffects ξ ι) where
-  pure := .pure
+def Reads.map (f : α → β) : Reads ξ ι α → Reads ξ ι β
+  | .pure a => .pure (f a)
+  | .xBusRead p next => .xBusRead p (map (f ∘ ·) next)
+  | .simpleIORead p next => .simpleIORead p (map (f ∘ ·) next)
+
+def _root_.Prod.mapSnd (f : α → β) : σ × α → σ × β :=
+  Prod.map id f
+
+def Reads.mapSnd (f : α → β) : Reads ξ ι (σ × α) → Reads ξ ι (σ × β) :=
+  Reads.map fun (s, a) => (s, f a)
+
+def map (f : α → β) : IOEffects ξ ι α → IOEffects ξ ι β
+  | .ofReads reads => .ofReads (reads.map f)
+  | .xBusWrite p reads => .xBusWrite p (reads.mapSnd f)
+  | .xBusPoll p reads => .xBusPoll p (reads.map f)
+  | .simpleIOWrite p reads => .simpleIOWrite p (reads.mapSnd f)
+  | .sleep reads => .sleep (reads.mapSnd f)
+
+def _root_.Function.swap (f : α → β → γ) : β → α → γ :=
+  fun b a => f a b
 
 @[simp]
-def bind (mx : IOEffects ξ ι α) (f : α → IOEffects ξ ι β) : IOEffects ξ ι β :=
-  match mx with
-  | pure a => f a
-  | .xBusRead p next => .xBusRead p fun d => bind (next d) f
-  | .simpleIORead p next => .simpleIORead p fun d => bind (next d) f
-  | .xBusWrite p d next => .xBusWrite p d fun () => bind (next ()) f
-  | .simpleIOWrite p d next => .simpleIOWrite p d fun () => bind (next ()) f
-  | xBusPoll p next => xBusPoll p fun () => bind (next ()) f
-  | .sleep n h next => .sleep n h fun () => bind (next ()) f
+theorem Reads.sizeOf_map_eq_sizeOf {x : Reads ξ ι α} {f : α → β} : sizeOf (map f x) = sizeOf x := by
+  induction x generalizing β
+  all_goals first | rfl | rename_i ih; simp [map, ih]
 
-instance : Monad (IOEffects ξ ι) where
-  bind := bind
+/-- Thinking of `Reads` as a linked list, Append the effects of `ma ()` after the effects of `mf` -/
+def Reads.seq (mf : Reads ξ ι (α → β)) (ma : Unit → Reads ξ ι α) : Reads ξ ι β :=
+  match mf with
+  | .pure f => map f (ma ())
+  | .xBusRead pin next => .xBusRead pin (seq (map Function.swap next) ma)
+  | .simpleIORead pin next => .simpleIORead pin (seq (map Function.swap next) ma)
+termination_by sizeOf mf
 
-section
+private def seqReads (mf : Reads ξ ι (α → β)) (ma : IOEffects ξ ι α) : IOEffects ξ ι β :=
+  match ma with
+  | .ofReads reads => .ofReads (mf.seq fun () => reads)
+  | .xBusWrite p reads => .xBusWrite p ((mf.map Prod.mapSnd).seq fun () => reads)
+  | .xBusPoll p reads => .xBusPoll p (mf.seq fun () => reads)
+  | .simpleIOWrite p reads => .simpleIOWrite p ((mf.map Prod.mapSnd).seq fun () => reads)
+  | .sleep reads => .sleep ((mf.map Prod.mapSnd).seq fun () => reads)
 
--- TODO: make this local
-attribute [simp] Functor.map Seq.seq Bind.bind Pure.pure
+/-- If `mf` and `ma ()` are both leaf effects, ignore the leaf effects of the latter. -/
+def seq (mf : IOEffects ξ ι (α → β)) (ma : Unit → IOEffects ξ ι α) : IOEffects ξ ι β :=
+  match mf with
+  | .ofReads rf => seqReads rf (ma ())
+  | .xBusWrite p reads => .xBusWrite p sorry
+  | .xBusPoll pin reads => sorry
+  | .simpleIOWrite p reads => sorry
+  | .sleep reads => sorry
 
-theorem id_map (x : IOEffects ξ ι α) : id <$> x = x := by
-  induction x <;> try rfl
-  all_goals
-    simp; rename_i ih; funext; apply ih
-
-theorem bind_pure_comp (f : α → β) (x : IOEffects ξ ι α) : x >>= (fun a => pure (f a)) = f <$> x := by
-  induction x
-  all_goals
-    simp <;> rename_i ih <;> funext <;> apply ih
-
-instance : LawfulMonad (IOEffects ξ ι) where
-  map_const := rfl
-  id_map := id_map
-  seqLeft_eq x y := by
-    simp [SeqLeft.seqLeft]
-    induction x
-    all_goals
-      first | apply bind_pure_comp | rename_i ih; funext; simp [ih]
-  seqRight_eq x y := by
-    simp [SeqRight.seqRight]
-    induction x
-    all_goals
-      first | symm; apply id_map | rename_i ih; funext; simp [ih]
-  pure_seq f x := by simp [Seq.seq]
-  bind_pure_comp := bind_pure_comp
-  bind_map f x := by
-    induction f <;> simp <;> (rename_i ih; funext; apply ih)
-  pure_bind := by simp
-  bind_assoc x f g := by
-    induction x <;> simp <;> (rename_i ih; funext; apply ih)
-
-end
-
-/-- In `sleep` or `xBusPoll` state -/
-abbrev isSleep : IOEffects ξ ι α → Bool
-| .sleep .. | .xBusPoll .. => true
-| _ => false
-
-/-- Advance `.sleep` states by one time unit. Leave `.xBusPoll` states alone. -/
-def advanceSleep (fx : IOEffects ξ ι α) (h : fx.isSleep = true) : IOEffects ξ ι α :=
-  match fx with
-  | .xBusPoll .. => fx
-  | .sleep 1 _ next => next ()
-  | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
-
-end IOEffects
+instance : Applicative (IOEffects ξ ι) where
+  map := map
+  pure := pure
+  seq := seq
