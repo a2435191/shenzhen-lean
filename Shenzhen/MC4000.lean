@@ -143,67 +143,63 @@ def advanceIP {m} (flags : Vector ConditionalFlag m)
       | some ip' =>
         is.setIP ip' -- just set the new IP
 
-/-- `IOEffects m α` wraps `α` and mutable `InstructionState m` state inside `IOEffects`.
-  Equal to `InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m)`. -/
-@[reducible]
-private def Effects (m : ℕ) : Type → Type :=
-  StateT (InstructionState m) (IOEffects XBus SimpleIO)
+-- /-- `IOEffects m α` wraps `α` and mutable `InstructionState m` state inside `IOEffects`.
+--   Equal to `InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m)`. -/
+-- @[reducible]
+-- private def Effects (m : ℕ) : Type → Type 1 :=
+--   StateT (InstructionState m) (IOEffects XBus SimpleIO)
 
 /-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks).
   The effects include advancing the instruction pointer. -/
 def instructionEffects {m} (instr : Instruction m) (flags : Vector ConditionalFlag m)
     : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) :=
-  let res := impl *> setNextIP
-  fun s => res s <&> Prod.snd
+  sorry
+  -- let res := impl *> setNextIP
+  -- fun s => res s <&> Prod.snd
 where
   /-- Here we tell ensure that `.pure` states (whether buried under other `IOEffects` or not)
     advance the instruction pointer. -/
-  setNextIP : Effects m Unit := do
-    match instr with
-    | .jmp ip' => modify (InstructionState.setIP ip')
-    | _ => modify (advanceIP flags)
+  setNextIP : sorry := --do
+    sorry
+    -- match instr with
+    -- | .jmp ip' => modify (InstructionState.setIP ip')
+    -- | _ => modify (advanceIP flags)
 
   /-- Handle everything except for updating the IP -/
-  impl : Effects m Unit := do
-    -- TODO: somewhere (maybe here) set the conditional flag corresponding to "@" after executing this instr
+  impl : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) := fun s =>
     match instr with
-    -- Basic
-    | .nop => return
+    | .add ri =>
+    -- TODO increase IP
+      match ri with
+      | .int n => .pure (.modifyAcc (· + n) s)
+      | .null => .pure s
+      | .internal .acc => .pure (s.modifyAcc fun d => d + d)
+      | .xBus x => .ofReads <| .xBusRead x <| .pure fun d => s.modifyAcc (· + d)
+      | .simpleIO i => .ofReads <| .simpleIORead i <| .pure fun d => s.modifyAcc (· + d)
     | .mov src dst =>
-      let d ← readRegOrInt src
-      match dst with
-      | .null => return
-      | .internal .acc => modify ({· with acc := d})
-      | .simpleIO i =>
-        let d := d.toSimpleIOData
-        ret (.simpleIOWrite i d pure)
-      | .xBus x => ret (.xBusWrite x d pure)
-    | .jmp _ => return -- handled in `setNextIP`
-    | .slp ri =>
-      let d ← readRegOrInt ri
-      match d.clampToNat with
-      | 0 => return
-      | k + 1 => ret <| .sleep (k + 1) (Nat.succ_ne_zero _) pure
-    | .slx r => ret (.xBusPoll r pure)
-    -- Arithmetic
-    | .add ri => doArith ri (· + ·)
-    | .sub ri => doArith ri (· - ·)
-    | .mul ri => doArith ri (· * ·)
-    | .not => modify (.modifyAcc Integer.not)
-    | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
-    | .dst ri₁ ri₂ =>
-      -- set the `ri₁`th digit of `acc` to `ri₂`
-      let digit ← readRegOrInt ri₁
-      let num ← readRegOrInt ri₂
-      modify (.modifyAcc (Integer.setDigit · digit num))
-    -- Test (comparison)
-    | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
-    | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
-    | .tlt ri₁ ri₂ => doCmp ri₁ ri₂ (· < ·)
-    | .tcp ri₁ ri₂ =>
-      let d₁ ← readRegOrInt ri₁
-      let d₂ ← readRegOrInt ri₂
-      modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
+      -- TODO increase IP
+      match src, dst with
+      | .int n, .null => .pure s
+      | .int n, .internal .acc => .pure ({ s with acc := n })
+      | .int n, .xBus x => .xBusWrite x (.pure (n, { s with acc := n }))
+      | .int n, .simpleIO i => .simpleIOWrite i (.pure (n.toSimpleIOData, { s with acc := n }))
+      | .null, .null => .pure s
+      | .null, .internal .acc => .pure ({ s with acc := 0 })
+      | .null, .xBus x => .xBusWrite x (.pure (0, { s with acc := 0}))
+      | .null, .simpleIO i => .simpleIOWrite i (.pure (0, { s with acc := 0 }))
+      | .internal .acc, .null => .pure s
+      | .internal .acc, .internal .acc => .pure { s with acc := s.acc }
+      | .internal .acc, .xBus x => .xBusWrite x (.pure (s.acc, s))
+      | .internal .acc, .simpleIO i => .simpleIOWrite i (.pure (s.acc.toSimpleIOData, s))
+      | .xBus x, .null => .ofReads (.xBusRead x (.pure fun _ => s))
+      | .xBus x, .internal .acc => .ofReads (.xBusRead x (.pure fun d => { s with acc := d }))
+      | .xBus x₁, .xBus x₂ => .xBusWrite x₂ <| .xBusRead x₁ (.pure fun d => (d, s))
+      | .xBus x, .simpleIO i => .simpleIOWrite i <| .xBusRead x (.pure fun d => (d.toSimpleIOData, s))
+      | .simpleIO i, .null => .ofReads (.simpleIORead i (.pure fun _ => s))
+      | .simpleIO i, .internal .acc => .ofReads (.simpleIORead i (.pure fun d => { s with acc := d }))
+      | .simpleIO i, .xBus x => .xBusWrite x (.simpleIORead i (.pure (·.toInteger, s)))
+      | .simpleIO i₁, .simpleIO i₂ => .simpleIOWrite i₂ (.simpleIORead i₁ (.pure (·, s)))
+    | _ => sorry
 
   /-- Read an integer from `ri` (inside `Effects m`) -/
   readRegOrInt (ri : RegOrInt) : Effects m Integer := do
