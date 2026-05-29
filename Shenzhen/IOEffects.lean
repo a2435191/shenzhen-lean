@@ -102,22 +102,24 @@ def advanceSleep (fx : IOEffects ξ ι α) (h : fx.isSleep = true) : IOEffects �
   | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
 
 protected def toString [ToString ξ] [ToString ι] [ToString α]
-    (inputs : List Integer) : IOEffects ξ ι α → String :=
+    (inputs : List Integer) (indent : Nat := 0) : IOEffects ξ ι α → String :=
   go inputs
 where
-  go (inputs : List Integer) : IOEffects ξ ι α → String
-    | .pure a => toString a
-    | .xBusWrite pin d next => s!"write {d} out of x{pin}\n{go inputs (next ())}"
-    | .xBusPoll pin next => s!"poll on x{pin}\n{go inputs (next ())}"
-    | .simpleIOWrite pin d next => s!"write {d} out of p{pin}\n{go inputs (next ())}"
-    | .sleep n _ next => s!"sleep for {n}\n{go inputs (next ())}"
-    | .xBusRead pin next =>
-      match inputs with
-      | [] => s!"ran out of inputs; about to read x{pin}"
-      | d :: inputs' => s!"read {d} from x{pin}\n{go inputs' (next d)}"
-    | .simpleIORead pin next =>
-      match inputs with
-      | [] => s!"ran out of inputs; about to read p{pin}"
-      | d :: inputs' => s!"read {d} from p{pin}\n{go inputs' (next d.toSimpleIOData)}"
+  go (inputs : List Integer) (e : IOEffects ξ ι α) : String :=
+    (String.pushn "" ' ' indent).append <|
+      match e with
+      | .pure a => s!"pure {a}"
+      | .xBusWrite pin d next => s!"write {d} out of x{pin}\n{go inputs (next ())}"
+      | .xBusPoll pin next => s!"poll on x{pin}\n{go inputs (next ())}"
+      | .simpleIOWrite pin d next => s!"write {d} out of p{pin}\n{go inputs (next ())}"
+      | .sleep n _ next => s!"sleep for {n}\n{go inputs (next ())}"
+      | .xBusRead pin next =>
+        match inputs with
+        | [] => s!"ran out of inputs; about to read x{pin}"
+        | d :: inputs' => s!"read {d} from x{pin}\n{go inputs' (next d)}"
+      | .simpleIORead pin next =>
+        match inputs with
+        | [] => s!"ran out of inputs; about to read p{pin}"
+        | d :: inputs' => s!"read {d} from p{pin}\n{go inputs' (next d.toSimpleIOData)}"
 
 end IOEffects

@@ -595,6 +595,15 @@ def states₃ := advance states₂
 #guard_msgs(drop info) in
 #reduce advanceTimeUnit board states₀ 16
 
-
+#eval do
+  let (success, states) := advanceTimeUnit board states₀ 2
+  println! "success: {success}\n"
+  let _ ← states.mapM fun (s : State) => do
+    println! "m = {s.m}"
+    println! "simpleIOOut = {s.simpleIOOut.toList}"
+    println! "waitingToWrite = {s.waitingToWrite.toList}"
+    println! "instructionState = \n{s.instructionState.toString [] 2}"
+    println! ""
+  return ()
 
 end Test
