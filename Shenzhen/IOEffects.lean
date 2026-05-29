@@ -24,9 +24,10 @@ inductive IOEffects (ξ : Type u) (ι : Type v) (α : Type x)
 | sleep (n : Nat) (h : n ≠ 0) (next : Unit → IOEffects ξ ι α)
 
 -- TODO I would really strongly prefer that these constructors not have
--- data-dependent effects, i.e. `next : IOEffects ξ ι (Integer → α)` instead
--- of `Integer → IOEffects ξ ι α`. However, I don't know how to make this work with
--- `xBusWrite` and `.simpleIOWrite`
+-- be able to choose the next constructor based on the incoming data,
+-- i.e. `next : IOEffects ξ ι (Integer → α)` instead of `Integer → IOEffects ξ ι α`.
+-- However, I don't know how to make this work with
+-- `xBusWrite` and `.simpleIOWrite`, since the written data often requires data-dependent effects
 
 namespace IOEffects
 
