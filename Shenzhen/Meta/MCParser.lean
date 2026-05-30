@@ -8,12 +8,6 @@ import Shenzhen.Line
 public meta import Shenzhen.Compile
 public meta import Shenzhen.MCParser
 
--- TODO: allow any alphanumeric + '_' labels, including reserved words
--- TODO: grab space immediately after comment '#'
--- TODO: allow any characters after comment, including reserved words
--- TODO: properly parse empty lines in `mc`
--- TDOO: add `expectedType`s
-
 namespace MCParser
 
 elab "line(" e:line ")" : term => elabLine e none
