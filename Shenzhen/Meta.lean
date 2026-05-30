@@ -3,6 +3,8 @@ module
 public import Lean.Expr
 import Lean.Meta.AppBuilder
 
+/-! # Utils for meta-phase stuff -/
+
 namespace Lean.Meta
 
 /-! Bring some functions out of the `MetaM` monad. -/

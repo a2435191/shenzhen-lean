@@ -5,7 +5,7 @@ public import Shenzhen.Instruction
 public import Shenzhen.Line
 public import Shenzhen.Integer
 public import Shenzhen.MC4000
-public import Shenzhen.Util.Meta
+public import Shenzhen.Meta
 
 public section
 
