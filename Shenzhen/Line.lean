@@ -14,5 +14,6 @@ structure MCParser.Line where
   comment : Option String
 deriving Repr, Lean.ToExpr
 
+@[expose]
 abbrev MC4000.Line :=
   MCParser.Line String InternalReg XBus SimpleIO

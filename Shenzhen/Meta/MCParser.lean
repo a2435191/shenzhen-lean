@@ -1,12 +1,11 @@
 module
 
 public import Lean.Elab.Term.TermElabM
+public import Shenzhen.Line
 
 import Shenzhen.Instruction
 import Shenzhen.MC4000
-import Shenzhen.Line
 import Shenzhen.Compile
-import Lean.Parser.Basic
 
 -- TODO: allow any alphanumeric + '_' labels, including reserved words
 -- TODO: grab space immediately after comment '#'
@@ -41,7 +40,6 @@ end
 
 open Lean Elab Meta Term
 
-
 instance : MonadExceptOf Exception (Except Exception) where
   throw := .error
   tryCatch := .tryCatch
@@ -65,11 +63,7 @@ def parseInt (stx : Syntax) : ParseM Integer := do
   else
     return .ofInt m (Int.not_lt.mp h₁) (Int.not_lt.mp h₂)
 
-end MCParser
-
-namespace MC4000.Parser
-
-open Lean Elab Meta Term MCParser
+open MC4000
 
 def parseReg (stx : Syntax) : ParseM (Instruction.Reg InternalReg XBus SimpleIO) := do
   match stx with
@@ -107,7 +101,7 @@ def parseInstr : Syntax → ParseM (_root_.Instruction String InternalReg XBus S
 | `(shenzhen_mc_instr| tcp $ri₁ $ri₂) => return .tcp (←parseRegOrInt ri₁) (←parseRegOrInt ri₂)
 | _ => throwUnsupportedSyntax
 
-def parseLine : Syntax → ParseM Line
+public def parseLine : Syntax → Except Exception MC4000.Line
 | `(line| $(labelFull)? $(cond)? $(instr)? $(comment)?) => do
   let label := labelFull <&> fun
     | `(label| $l:ident :) => l.getId.toString false
@@ -127,59 +121,7 @@ def parseLine : Syntax → ParseM Line
   return { label, condition, instruction, comment }
 | _ => throwUnsupportedSyntax
 
-def elabLine : TermElab := fun stx _ =>
+public def elabLine : TermElab := fun stx _ =>
   match parseLine stx with
   | .error e => throw e
   | .ok line => return toExpr line
-
-elab "line(" e:line ")" : term => elabLine e none
-
-elab "mc(" e:sepBy(line, "\n", linebreak) ")" : term => do
-  let lines ← e.getElems.mapM (elabLine · none)
-  mkArrayLit (←mkConst ``MC4000.Line) lines.toList
-
--- #eval mc(
---   slp 1
---   slp 2
---   slx x0
---   slp p0
--- )
-
-
--- #check #[
---   line(nop),
---   line(mov 0 x1),
---   line(jmp lbl),
---   line(slp p0),
---   line(slx x0),
---   line(add x1),
---   line(jmp labeleeeeeee3)
--- ]
-
-/--
-error: `slx` only works with XBus registers
--/
-#guard_msgs in
-#check line(slx p0)
-
-/-- Invoke the microchip compiler to turn MC-series source code into an initial
-chip state. This happens at Lean compile time.
-
-If you want this to happen at runtime, just use the functions in `Compile.lean`
-directly. -/
-elab "mcc(" e:sepBy(line, "\n", linebreak) ")" : term => do
-  match e.getElems.mapM parseLine with
-  | .error e => throw e
-  | .ok lines =>
-    match Compile.compile lines with
-    | .error e => throwError toString e
-    | .ok compiled => return toExpr compiled
-
-
--- #eval mcc(
---     slx x0
---     teq x0 p1
---   + add 50
---     tgt acc 100
---   + mov 0 acc
---     mov acc p1)
