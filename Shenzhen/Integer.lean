@@ -1,9 +1,7 @@
 module
 
 import all Shenzhen.IntLemmas
-public meta import Shenzhen.Util -- TODO
-import Shenzhen.Util
--- TODO: move meta defs to their own file
+public import Shenzhen.Util
 
 import Lean
 public import Lean.Elab.Term.TermElabM
@@ -53,8 +51,7 @@ instance : DecidableLE Integer :=
 
 open Int16
 
--- TODO move to own file so non-meta code can use this too
-meta def ofInt (n : Int) (h₁ : n ≤ 999) (h₂ : -999 ≤ n) :=
+def ofInt (n : Int) (h₁ : n ≤ 999) (h₂ : -999 ≤ n) :=
   have : Int16.ofInt n ≤ .ofInt 999 ∧ Int16.ofInt (-999) ≤ .ofInt n := by
     constructor <;> (
       apply (Int16.ofInt_le_iff_le ..).mpr
@@ -169,7 +166,7 @@ Additionally, the sign of the returned value is the same as the sign of `d` for
 end
 
 open Lean in
-meta instance : ToExpr Integer where
+public instance : ToExpr Integer where
   toTypeExpr := mkConst ``Integer
   toExpr
   | { n, .. } =>
@@ -184,38 +181,3 @@ where
     Meta.mkDecideProof'
       (mkApp4 (mkConst ``LE.le [0]) (mkConst ``Int16) (mkConst ``instLEInt16) a b)
       (mkApp2 (mkConst ``Int16.decLe) a b)
-
--- TODO: make local
-elab "test_Integer.instToExpr" sign:("-" noWs)? x:num : term =>
-  let n : Int := (if sign.isSome then -1 else 1) * x.getNat
-  if h : n ≤ 999 ∧ -999 ≤ n then
-    return Lean.ToExpr.toExpr (Integer.ofInt n h.left h.right)
-  else throwError "invalid literal provided"
-
-/-- error: invalid literal provided -/
-#guard_msgs in
-#check test_Integer.instToExpr -1103
-
-/-- info: { n := -999, le := ⋯, ge := ⋯ } : Integer -/
-#guard_msgs in
-#check test_Integer.instToExpr -999
-
-/-- info: { n := -15, le := ⋯, ge := ⋯ } : Integer -/
-#guard_msgs in
-#check test_Integer.instToExpr -15
-
-/-- info: { n := 0, le := ⋯, ge := ⋯ } : Integer -/
-#guard_msgs in
-#check test_Integer.instToExpr 0
-
-/-- info: { n := 37, le := ⋯, ge := ⋯ } : Integer -/
-#guard_msgs in
-#check test_Integer.instToExpr 37
-
-/-- info: { n := 999, le := ⋯, ge := ⋯ } : Integer -/
-#guard_msgs in
-#check test_Integer.instToExpr 999
-
-/-- error: invalid literal provided -/
-#guard_msgs in
-#check test_Integer.instToExpr 8314
