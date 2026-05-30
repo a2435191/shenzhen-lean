@@ -350,7 +350,7 @@ where
       if !alreadyTicked[j] then
         match h : states[j] with
         | ⟨m, .xBusWrite pin d next, _, waitingToWrite⟩ =>
-          if waitingToWrite[pin] && xBusConns whichPin (j, pin) then
+          if waitingToWrite[pin] && xBusConns.connected whichPin (j, pin) then
             some ⟨j, pin, d, cast (by simp [h]) next⟩
           else none
         | _ => none
@@ -587,10 +587,10 @@ def board : Board 2 :=
         .slp (.int 1)]
 
   let simpleIOConns : Conns 2 SimpleIO :=
-    fun _ _ => false
+    .ofEdges []
 
   let xBusConns : Conns 2 XBus :=
-    fun | (0, 1), (1, 0) | (1, 0), (0, 1) => true | _, _ => false
+    .ofEdges [((0, 1), (1, 0))]
 
   { chips := #v[mc₀, mc₁], simpleIOConns, xBusConns }
 

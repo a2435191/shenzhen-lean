@@ -36,12 +36,8 @@ def lightController : Board 4 :=
     slp 1)
   {
     chips := #v[touch, chip₁, chip₂, light],
-    simpleIOConns := .symmetrize fun
-      | (0, 0), (1, 0) | (2, 1), (3, 1) => true
-      | _, _ => false
-    xBusConns := .symmetrize fun
-      | ⟨1, 1⟩, ⟨2, 0⟩ => true
-      | _, _ => false
+    simpleIOConns := .ofEdges [((0, 0), (1, 0)), ((2, 1), (3, 1))]
+    xBusConns := .ofEdges [((1, 1), (2, 0))]
   }
 
 def rep (n : ℕ) (f : α → α) : α → α :=
