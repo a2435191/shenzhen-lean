@@ -602,7 +602,7 @@ def states₁ := advance states₀
 def states₂ := advance states₁
 def states₃ := advance states₂
 
-#eval do
+#eval show IO Unit from do
   let (success, states) := advanceTimeUnit board states₀ 4
   println! "success: {success}\n"
   for s in states do
