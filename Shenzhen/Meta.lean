@@ -23,17 +23,17 @@ public def mkDecideProof' (p inst : Expr) : Expr :=
   let h := Meta.mkExpectedPropHint h decEqTrue
   mkApp3 (mkConst ``of_decide_eq_true) p inst h
 
-def mkListLit' (type : Expr) (xs : List Expr) (u := levelZero) : Expr :=
+def mkListLit' (type : Expr) (xs : List Expr) (u := Level.zero) : Expr :=
   xs.foldr (init := .app (mkConst ``List.nil [u]) type) fun expr acc =>
     mkApp3 (mkConst ``List.cons [u]) type expr acc
 
-def mkArrayLit' (type : Expr) (xs : List Expr) (u := levelZero) : Expr :=
+def mkArrayLit' (type : Expr) (xs : List Expr) (u := Level.zero) : Expr :=
   mkApp2 (mkConst ``List.toArray [u]) type (mkListLit' type xs u)
 
 public instance instDecidableArraySizeEq.{u} {α : Type u} {arr : Array α} {n : Nat} : Decidable (arr.size = n) :=
   inferInstance
 
-public def mkVector (type : Expr) (xs : List Expr) (u := levelZero) : Expr :=
+public def mkVector (type : Expr) (xs : List Expr) (u := Level.zero) : Expr :=
   let arrExpr := mkArrayLit' type xs u
   let nExpr := mkNatLit xs.length
   mkApp4 (mkConst ``Vector.mk [u]) type nExpr arrExpr <|
