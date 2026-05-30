@@ -2,6 +2,10 @@ import Batteries.Data.Fin.Basic
 import Batteries.Data.Fin.Lemmas
 import Batteries.Tactic.Lemma
 
+/-- `n` spaces -/
+def String.whitespace (n : Nat) : String :=
+  String.pushn "" ' ' n
+
 namespace Fin
 
 theorem add_assoc {a b c : Fin n} : a + b + c = a + (b + c) := by

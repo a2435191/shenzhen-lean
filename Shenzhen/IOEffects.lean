@@ -1,5 +1,6 @@
 import Shenzhen.Integer
 import Shenzhen.SimpleIOData
+import Shenzhen.Util
 
 /-- `IOEffects ξ ι α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
   We also record reads and writes from simple I/O pins, although they don't block.
@@ -107,7 +108,7 @@ protected def toString [ToString ξ] [ToString ι] [ToString α]
   go inputs
 where
   go (inputs : List Integer) (e : IOEffects ξ ι α) : String :=
-    (String.pushn "" ' ' indent).append <|
+    (String.whitespace indent).append <|
       match e with
       | .pure a => s!"pure {a}"
       | .xBusWrite pin d next => s!"write {d} out of x{pin}\n{go inputs (next ())}"
