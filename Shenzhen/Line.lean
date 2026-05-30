@@ -1,5 +1,9 @@
-import Shenzhen.Instruction
-import Shenzhen.MC4000
+module
+
+public import Shenzhen.Instruction
+public import Shenzhen.MC4000
+
+public section
 
 variable (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x)
 

@@ -1,4 +1,6 @@
-import Shenzhen.Line
+module
+
+public import Shenzhen.Line
 import Shenzhen.Util
 
 namespace Compile
@@ -10,12 +12,12 @@ def nextInstructionLine (lines : Vector (MCParser.Line Λ ρ ξ ι) n) (i : Fin 
 
 variable (lines : Array (MCParser.Line Λ ρ ξ ι)) [BEq Λ] [Hashable Λ]
 
-inductive CompileException
+public inductive CompileException
 | duplicateLabels (i : Fin lines.size)
 | unknownLabelInJmp (i : Fin lines.size)
 deriving Repr
 
-instance : ToString (CompileException arr) where
+public instance : ToString (CompileException arr) where
   toString
   | .duplicateLabels i => s!"There's a duplicate label at line {i}"
   | .unknownLabelInJmp i => s!"There's an unknown label in the `jmp` instruction at line {i}"
@@ -36,7 +38,7 @@ def labelPositions : Except (CompileException lines) (Std.HashMap Λ (Fin lines.
           have : Inhabited (Fin lines.size) := ⟨i⟩ -- TODO : prove that this is valid
           .ok (map.insert s next.get!)
 
-structure Compiled (ρ : Type u) (ξ : Type v) (ι : Type w) where
+public structure Compiled (ρ : Type u) (ξ : Type v) (ι : Type w) where
   m : Nat
   flags : Vector ConditionalFlag m
   instrs : Vector (Instruction (Fin m) ρ ξ ι) m
@@ -61,7 +63,7 @@ private instance instToExprProd : ToExpr (ConditionalFlag × Instruction (Fin m)
   @instToExprProdOfToLevel ConditionalFlag (Instruction (Fin m) ρ ξ ι)
     _ ({ toLevel := Level.mkNaryMax [toLevel.{u}, toLevel.{v}, toLevel.{w}] }) _ _
 
-instance : ToExpr (Compiled ρ ξ ι) :=
+public instance : ToExpr (Compiled ρ ξ ι) :=
   let levels := [toLevel.{u}, toLevel.{v}, toLevel.{w}]
   let typeParams := #[toTypeExpr ρ, toTypeExpr ξ, toTypeExpr ι]
   { toTypeExpr := mkAppN (mkConst ``Compiled levels) typeParams,
@@ -83,14 +85,14 @@ instance : ToExpr (Compiled ρ ξ ι) :=
 
 -- #eval test
 
-def empty : Compiled ρ ξ ι :=
+public def empty : Compiled ρ ξ ι :=
   { m := 0, flags := #v[], instrs := #v[] }
 
 end Compiled
 
 /-- Compile a vector of `MCParser.Line`s to a vector of `ConditionalFlag × Instruction`s.
 All lines without instructions are discarded. -/
-def compile : Except (CompileException lines) (Compiled ρ ξ ι) :=
+public def compile : Except (CompileException lines) (Compiled ρ ξ ι) :=
   let n := lines.size
 
   let noBlanks := lines.zip (Array.ofFn (n := n) id)|>.filterMap fun
@@ -121,5 +123,5 @@ def compile : Except (CompileException lines) (Compiled ρ ξ ι) :=
 
 end Compile
 
-def MC4000.ofCompiled : Compile.Compiled InternalReg XBus SimpleIO → MC4000
+public def MC4000.ofCompiled : Compile.Compiled InternalReg XBus SimpleIO → MC4000
 | { m, flags, instrs } => { m, flags, instrs }
