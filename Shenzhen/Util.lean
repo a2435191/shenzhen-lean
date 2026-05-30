@@ -8,35 +8,6 @@ def String.whitespace (n : Nat) : String :=
 
 namespace Fin
 
-theorem add_assoc {a b c : Fin n} : a + b + c = a + (b + c) := by
-  simp [Fin.add_def]
-  congr 1
-  apply Nat.add_assoc
-
-theorem neg_add_cancel {a : Fin n} : -a + a = ⟨0, a.pos⟩ := by
-  simp [Fin.neg_def, Fin.add_def, Nat.sub_add_cancel (Nat.le_of_lt a.is_lt)]
-
-theorem add_comm {a b : Fin n} : a + b = b + a := by
-  simp only [add_def]
-  congr 2
-  apply Nat.add_comm
-
-theorem left_distrib {a b c : Fin n} : a * (b + c) = a * b + a * c := by
-  simp [Fin.mul_def, Fin.add_def]
-  congr 1
-  apply Nat.mul_add
-
-theorem right_distrib {a b c : Fin n} : (a + b) * c = a * c + b * c := by
-  simp [Fin.mul_def, Fin.add_def]
-  congr 1
-  apply Nat.add_mul
-
-theorem add_sub_cancel {a b : Fin n} : a + (b - a) = b := by
-  simp [Fin.add_def, Fin.sub_def]
-  congr 1
-  rw [←Nat.add_assoc, Nat.add_sub_cancel' a.is_le',
-      Nat.add_mod_left, Nat.mod_eq_of_lt b.is_lt]
-
 /-- Find the smallest `j > i` s.t. `p j = true`, or `none` if no such `j` exists. -/
 @[specialize] def nextFinIdx? (i : Fin n) (p : Fin n → Bool) : Option (Fin n) :=
   if h : i.val + 1 < n then
