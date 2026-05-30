@@ -1,9 +1,11 @@
 module
 
-import Shenzhen.Instruction
+public import Shenzhen.Instruction
 import Shenzhen.Util
 
 import Batteries.Data.Fin.Basic
+
+public section
 
 /-- `IP m` is the type of an instruction pointer for an `MC4000` with `m` instructions.
   Chips can have zero instructions, so `IP m` is equivalent to `if m = 0 then Unit else Fin m`, but

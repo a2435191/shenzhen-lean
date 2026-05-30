@@ -103,7 +103,7 @@ Type parameters:
 - `ρ` is for (internal chip) *r*egisters
 - `ξ` is for *X*bus pins
 - `ι` is for *I*O pins. -/
-inductive Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x)
+inductive _root_.Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x)
 -- Basic instructions
 | nop
 | mov : R/I → R → Instruction ..
