@@ -1,8 +1,8 @@
 import Shenzhen.Notation
 import Batteries.Data.List.Basic
 
-structure Conns (nChips : ℕ) (connType : Type) where
-  connected : (Fin nChips × connType) → (Fin nChips × connType) → Bool
+structure Conns (nChips : ℕ) (pinType : Type) where
+  connected : (Fin nChips × pinType) → (Fin nChips × pinType) → Bool
 
 namespace Conns
 
