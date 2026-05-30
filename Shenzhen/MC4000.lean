@@ -565,6 +565,7 @@ def advanceTimeUnit {n : ℕ} (board : Board n)
 
 namespace Test
 
+/-- See `example2.png` -/
 def board : Board 2 :=
   let mc₀ : MC4000 :=
     .mk #v[.none, .none]
@@ -572,7 +573,7 @@ def board : Board 2 :=
   let mc₁ : MC4000 :=
     .mk (Vector.replicate _ .none)
       #v[
-        .nop,
+        -- .nop,
         .mov (.xBus 0) (.internal .acc),
         .slp (.int 1)]
 
@@ -592,11 +593,8 @@ def states₁ := advance states₀
 def states₂ := advance states₁
 def states₃ := advance states₂
 
-#guard_msgs(drop info) in
-#reduce advanceTimeUnit board states₀ 16
-
 #eval do
-  let (success, states) := advanceTimeUnit board states₀ 2
+  let (success, states) := advanceTimeUnit board states₀ 16
   println! "success: {success}\n"
   let _ ← states.mapM fun (s : State) => do
     println! "m = {s.m}"

@@ -101,6 +101,7 @@ def advanceSleep (fx : IOEffects ξ ι α) (h : fx.isSleep = true) : IOEffects �
   | .sleep 1 _ next => next ()
   | .sleep (k + 2) _ next => .sleep (k + 1) (Nat.succ_ne_zero _) next
 
+/-- Print an `IOEffects` value. Any reads use values from `inputs` (extra inputs are fine). -/
 protected def toString [ToString ξ] [ToString ι] [ToString α]
     (inputs : List Integer) (indent : Nat := 0) : IOEffects ξ ι α → String :=
   go inputs
