@@ -1,7 +1,6 @@
 module
 
 public import Shenzhen.Integer
-public import Shenzhen.Integer.Meta
 
 public section
 

@@ -3,7 +3,6 @@ module
 public import Lean.Expr
 import Lean.Meta.AppBuilder
 
--- TODO move this to its own file
 namespace Lean.Meta
 
 /-! Bring some functions out of the `MetaM` monad. -/
