@@ -587,10 +587,10 @@ def board : Board 2 :=
         .slp (.int 1)]
 
   let simpleIOConns : Conns 2 SimpleIO :=
-    ⟨fun _ _ => false⟩
+    .ofEdges []
 
   let xBusConns : Conns 2 XBus :=
-    ⟨fun | (0, 1), (1, 0) | (1, 0), (0, 1) => true | _, _ => false⟩
+    .ofEdges [((0, 1), (1, 0))]
 
   { chips := #v[mc₀, mc₁], simpleIOConns, xBusConns }
 
