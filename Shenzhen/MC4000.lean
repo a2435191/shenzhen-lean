@@ -1,18 +1,26 @@
-import Shenzhen.Instruction
-import Shenzhen.Integer
+module
+
+public import Lean.ToExpr
+
+public import Shenzhen.Conns
+public import Shenzhen.Instruction
+public import Shenzhen.Integer
+public import Shenzhen.IOEffects
+public import Shenzhen.MC.IP
+
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
-import Shenzhen.IOEffects
 import Shenzhen.Notation
-import Shenzhen.Conns
-import Shenzhen.MC.IP
 
+import Batteries.Data.Fin.Basic
+
+public section -- TODO we can tighten this lots
 namespace MC4000
 
 @[reducible] def numXBusPins := 2
-@[reducible] def XBus := Fin numXBusPins
+@[reducible, expose] def XBus := Fin numXBusPins -- TODO if I remove the `expose`s here I get a compiler error below
 @[reducible] def numSimpleIOPins := 2
-@[reducible] def SimpleIO := Fin numSimpleIOPins
+@[reducible, expose] def SimpleIO := Fin numSimpleIOPins
 
 inductive InternalReg | acc -- Only one register
 deriving Repr, Lean.ToExpr
@@ -602,10 +610,11 @@ def states₁ := advance states₀
 def states₂ := advance states₁
 def states₃ := advance states₂
 
-#eval show IO Unit from do
-  let (success, states) := advanceTimeUnit board states₀ 4
-  println! "success: {success}\n"
-  for s in states do
-    println! "{s.toString}\n"
+-- TODO: broken
+-- #eval show IO Unit from do
+--   let (success, states) := advanceTimeUnit board states₀ 4
+--   println! "success: {success}\n"
+--   for s in states do
+--     println! "{s.toString}\n"
 
 end Test

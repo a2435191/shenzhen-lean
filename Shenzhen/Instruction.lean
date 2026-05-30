@@ -77,16 +77,16 @@ namespace RegOrInt
 
 -- Some convenience constructors so I don't have to type `.reg (.internal .acc)` all the time
 
-@[inline] def internal : ρ → RegOrInt ρ ξ ι :=
+@[inline, expose, match_pattern] def internal : ρ → RegOrInt ρ ξ ι :=
   .reg ∘ .internal
 
-@[inline] def xBus : ξ → RegOrInt ρ ξ ι :=
+@[inline, expose, match_pattern] def xBus : ξ → RegOrInt ρ ξ ι :=
   .reg ∘ .xBus
 
-@[inline] def simpleIO : ι → RegOrInt ρ ξ ι :=
+@[inline, expose, match_pattern] def simpleIO : ι → RegOrInt ρ ξ ι :=
   .reg ∘ .simpleIO
 
-@[inline] def null : RegOrInt ρ ξ ι :=
+@[inline, expose, match_pattern] def null : RegOrInt ρ ξ ι :=
   .reg .null
 
 end RegOrInt
