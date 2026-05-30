@@ -1,0 +1,16 @@
+#!/bin/zsh
+
+# Script to build the docs and launch them locally. If the lean version of `Shenzhen` is updated, need to tweak
+# `rev` in `docbuild/lakefile.toml` and rebuild
+
+cd docbuild
+lake build Shenzhen:docs
+
+local port=3358
+local already_listening=$(lsof -t -i:$port)
+if [[ -n $already_listening ]] then
+    echo "Terminating already server that's already listening"
+    kill $already_listening
+fi
+open .lake/build/doc/index.html
+python3 -m http.server $port
