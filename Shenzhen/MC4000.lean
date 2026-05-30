@@ -17,9 +17,9 @@ import Batteries.Data.Fin.Basic
 public section -- TODO we can tighten this lots
 namespace MC4000
 
-@[reducible] def numXBusPins := 2
-@[reducible, expose] def XBus := Fin numXBusPins -- TODO if I remove the `expose`s here I get a compiler error below
-@[reducible] def numSimpleIOPins := 2
+@[reducible, expose] def numXBusPins := 2
+@[reducible, expose] def XBus := Fin numXBusPins
+@[reducible, expose] def numSimpleIOPins := 2
 @[reducible, expose] def SimpleIO := Fin numSimpleIOPins
 
 inductive InternalReg | acc -- Only one register
@@ -42,9 +42,11 @@ deriving Repr
   This and XBus writes (see below) are the only effects that can change the state of a chip mid-instruction. -/
 
 
+@[expose]
 abbrev Instruction (numInstr : Nat) :=
   _root_.Instruction (Fin numInstr) InternalReg XBus SimpleIO
 
+@[expose]
 abbrev RegOrInt :=
   _root_.Instruction.RegOrInt InternalReg XBus SimpleIO
 

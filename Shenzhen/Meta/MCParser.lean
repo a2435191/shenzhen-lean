@@ -46,7 +46,6 @@ instance : MonadExceptOf Exception (Except Exception) where
   throw := .error
   tryCatch := .tryCatch
 
-
 abbrev ParseM := Except Exception
 
 def ParseM.throwErrorAt (stx : Syntax) (msg : MessageData) : ParseM α :=
