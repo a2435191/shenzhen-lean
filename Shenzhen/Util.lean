@@ -127,7 +127,7 @@ def mkArrayLit' (type : Expr) (xs : List Expr) (u := levelZero) : Expr :=
 local instance instDecidableArraySizeEq.{u} {α : Type u} {arr : Array α} {n : Nat} : Decidable (arr.size = n) :=
   inferInstance
 
-def mkVector (type : Expr) (xs : List Expr) (u := levelZero) : Expr :=
+public def mkVector (type : Expr) (xs : List Expr) (u := levelZero) : Expr :=
   let arrExpr := mkArrayLit' type xs u
   let nExpr := mkNatLit xs.length
   mkApp4 (mkConst ``Vector.mk [u]) type nExpr arrExpr <|
