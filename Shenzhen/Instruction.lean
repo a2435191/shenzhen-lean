@@ -150,6 +150,7 @@ instance
 
 -- #eval test
 
+-- TODO: remove this dead code
 def mapΛ (instr : Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x))
     (f : Λ → Λ') : Instruction Λ' ρ ξ ι :=
   match instr with
