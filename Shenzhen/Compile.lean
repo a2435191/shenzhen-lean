@@ -1,7 +1,7 @@
 module
 
 public import Shenzhen.Line
-import Shenzhen.Util
+public import Shenzhen.ToExpr
 
 namespace Compile
 

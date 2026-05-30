@@ -12,7 +12,7 @@ structure MCParser.Line where
   condition : ConditionalFlag
   instruction : Option (Instruction Λ ρ ξ ι)
   comment : Option String
-deriving Repr, Lean.ToExpr
+deriving Repr
 
 @[expose]
 abbrev MC4000.Line :=

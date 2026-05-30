@@ -23,7 +23,7 @@ public section
 @[reducible, expose] def SimpleIO := Fin numSimpleIOPins
 
 inductive InternalReg | acc -- Only one register
-deriving Repr, Lean.ToExpr
+deriving Repr
 
 /-- Represents the state during some instruction. While executing an instruction (possibly across multiple, in the case that we block on XBus),
   all fields stay the same -/
