@@ -52,9 +52,13 @@ def rep (n : ℕ) (f : α → α) : α → α :=
 def init :=
   lightController.initialStates
 
-#guard_msgs(drop info) in
-set_option maxRecDepth 5000 in
-#reduce rep 8 (MC4000.advanceTick lightController) init
+#eval show IO Unit from do
+  let states := rep 8 (MC4000.advanceTick lightController) init
+  for s in states do
+    println! s!"{s.toString}\n"
 
-#guard_msgs(drop info) in
-#reduce MC4000.advanceTimeUnit lightController init 50
+#eval show IO Unit from do
+  let (success, states) := MC4000.advanceTimeUnit lightController init 50
+  if success then println!"Not stuck\n" else println! "Stuck!\n"
+  for s in states do
+    println! s!"{s.toString}\n"

@@ -267,6 +267,15 @@ def blank (m : ℕ) : State :=
 @[inline] def setWaitingToWrite (i : XBus) (val : Bool) : State → State :=
   fun state => { state with waitingToWrite := Vector.set state.waitingToWrite i val }
 
+def toString (s : State) (inputs : List Integer := []) (indent : Nat := 0) : String :=
+  let ws := String.whitespace indent
+  ws ++ ("\n" ++ ws).intercalate [
+    s!"m = {s.m}",
+    s!"simpleIOOut = {s.simpleIOOut.toList}",
+    s!"waitingToWrite = {s.waitingToWrite.toList}",
+    s!"instructionState = \n{s.instructionState.toString inputs (indent + 2)}"
+  ]
+
 end State
 end MC4000
 
@@ -565,6 +574,7 @@ def advanceTimeUnit {n : ℕ} (board : Board n)
 
 namespace Test
 
+/-- See `example2.png` -/
 def board : Board 2 :=
   let mc₀ : MC4000 :=
     .mk #v[.none, .none]
@@ -572,7 +582,7 @@ def board : Board 2 :=
   let mc₁ : MC4000 :=
     .mk (Vector.replicate _ .none)
       #v[
-        .nop,
+        -- .nop,
         .mov (.xBus 0) (.internal .acc),
         .slp (.int 1)]
 
@@ -592,9 +602,10 @@ def states₁ := advance states₀
 def states₂ := advance states₁
 def states₃ := advance states₂
 
-#guard_msgs(drop info) in
-#reduce advanceTimeUnit board states₀ 16
-
-
+#eval show IO Unit from do
+  let (success, states) := advanceTimeUnit board states₀ 4
+  println! "success: {success}\n"
+  for s in states do
+    println! "{s.toString}\n"
 
 end Test
