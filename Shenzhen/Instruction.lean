@@ -1,9 +1,9 @@
 module
 
 public import Lean.ToExpr
-public import Shenzhen.Integer
 
-import Shenzhen.Integer
+public import Shenzhen.Integer
+public import Shenzhen.Integer.Meta
 
 public section
 

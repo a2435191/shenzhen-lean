@@ -2,7 +2,7 @@ module
 
 public import Shenzhen.Integer
 public import Shenzhen.SimpleIOData
-import Shenzhen.Util
+public import Shenzhen.Util
 
 /-- `IOEffects ξ ι α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
   We also record reads and writes from simple I/O pins, although they don't block.
