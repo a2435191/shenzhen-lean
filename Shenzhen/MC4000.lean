@@ -14,8 +14,8 @@ import Shenzhen.Notation
 
 import Batteries.Data.Fin.Basic
 
-public section -- TODO we can tighten this lots
 namespace MC4000
+public section
 
 @[reducible, expose] def numXBusPins := 2
 @[reducible, expose] def XBus := Fin numXBusPins
@@ -50,7 +50,10 @@ abbrev Instruction (numInstr : Nat) :=
 abbrev RegOrInt :=
   _root_.Instruction.RegOrInt InternalReg XBus SimpleIO
 
+end
+
 namespace InstructionState
+public section
 
 instance {m} : ToString (InstructionState m) where
   toString
@@ -71,6 +74,8 @@ def blank (m) : InstructionState m :=
 
 instance : Inhabited (InstructionState m) :=
   ⟨blank m⟩
+
+end
 
 @[inline, specialize]
 def modifyAcc (f : Integer → Integer) : InstructionState m → InstructionState m :=
@@ -101,7 +106,7 @@ end InstructionState
 end MC4000
 
 open MC4000 in
-structure MC4000 where
+public structure MC4000 where
   /-- The number of instructions on the chip. -/
   {m : outParam Nat}
   flags : Vector ConditionalFlag m
@@ -109,10 +114,10 @@ structure MC4000 where
 deriving Repr
 
 namespace MC4000
-section mk'
+public section mk'
 variable (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat InternalReg XBus SimpleIO))
 
-abbrev mk'.jmpLabelsInBounds : Bool :=
+@[expose] abbrev mk'.jmpLabelsInBounds : Bool :=
   instrs.all fun
     | .jmp dst => dst < instrs.size
     | _ => true
@@ -241,7 +246,7 @@ where
     fun is => bfx <&> (·, is)
 
 /-- The state of an executing chip -/
-structure State where
+public structure State where
   -- Constant. Not a type parameter because then we'd just have to do `(m : ℕ) × State m` inside
   -- `Vector`s below anyway
   m : ℕ
@@ -269,7 +274,7 @@ deriving Inhabited
 
 namespace State
 
-def blank (m : ℕ) : State :=
+public def blank (m : ℕ) : State :=
   { m,
     instructionState := pure (.blank m),
     simpleIOOut := #v[0, 0], waitingToWrite := #v[false, false] }
@@ -277,7 +282,7 @@ def blank (m : ℕ) : State :=
 @[inline] def setWaitingToWrite (i : XBus) (val : Bool) : State → State :=
   fun state => { state with waitingToWrite := Vector.set state.waitingToWrite i val }
 
-def toString (s : State) (inputs : List Integer := []) (indent : Nat := 0) : String :=
+public def toString (s : State) (inputs : List Integer := []) (indent : Nat := 0) : String :=
   let ws := String.whitespace indent
   ws ++ ("\n" ++ ws).intercalate [
     s!"m = {s.m}",
@@ -291,12 +296,12 @@ end MC4000
 
 -- for now, just MC4000s
 /-- The data in the simulation that doesn't change during execution. -/
-structure Board (n : ℕ) where
+public structure Board (n : ℕ) where
   chips : Vector MC4000 n
   simpleIOConns : Conns n MC4000.SimpleIO
   xBusConns : Conns n MC4000.XBus
 
-def Board.initialStates (b : Board n) : Vector MC4000.State n :=
+public def Board.initialStates (b : Board n) : Vector MC4000.State n :=
   b.chips.map fun { m, .. } => .blank m
 
 namespace MC4000
@@ -471,7 +476,7 @@ end
   The effect of running this function `n` times for large `n` should be to get all chips
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
-def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
+public def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
     : Vector State n :=
 
   -- First, any pure states (meaning about to execute an instruction) get wrapped in `IOEffects`
@@ -551,7 +556,8 @@ where
 -- TODO somewhere enforce "cannot read pin twice"
 -- TODO test edge case behavior for e.g. `mov x0 x0` or `mov p0 p0`
 
-def advanceTimeUnit.defaultMaxFuel : ℕ := 10_000
+@[expose]
+public def advanceTimeUnit.defaultMaxFuel : ℕ := 10_000
 
 /-- Advance one time unit across many interconnected chips. This can only happen
   if every chip is in the `IOEffects.sleep` state or `IOEffects.xBusPoll` (or empty, with no instructions TODO check this).
@@ -564,7 +570,7 @@ def advanceTimeUnit.defaultMaxFuel : ℕ := 10_000
   If successful, the instruction pointer of any chips that have finished sleeping (remember
   that chips can sleep for multiple time units) is incremented (or set in the case of a `.jmp`).
    -/
-def advanceTimeUnit {n : ℕ} (board : Board n)
+public def advanceTimeUnit {n : ℕ} (board : Board n)
     (states : Vector State n) (fuel : ℕ := advanceTimeUnit.defaultMaxFuel) : Bool × Vector State n :=
   match fuel with
   | 0 => (false, states)
