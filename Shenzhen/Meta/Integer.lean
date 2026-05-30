@@ -1,6 +1,6 @@
 module
 
-public meta import Shenzhen.Integer -- TODO: move the code we use for meta into its own file so this is faster
+public meta import Shenzhen.Integer
 
 local elab "test_Integer.instToExpr" sign:("-" noWs)? x:num : term =>
   let n : Int := (if sign.isSome then -1 else 1) * x.getNat
