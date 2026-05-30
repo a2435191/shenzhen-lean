@@ -1,4 +1,11 @@
+module
+
+public import Lean.ToExpr
+public import Shenzhen.Integer
+
 import Shenzhen.Integer
+
+public section
 
 inductive ConditionalFlag | none | pos | neg | once
 deriving Repr, Inhabited, Lean.ToExpr
@@ -27,7 +34,10 @@ inductive Pin (ξ : Type u) (ι : Type v)
 | xBus (pin : ξ) | simpleIO (pin : ι)
 deriving Repr, DecidableEq, BEq
 
+end
+
 namespace Instruction
+public section
 
 inductive Reg (ρ : Type v) (ξ : Type w) (ι : Type x)
 /-- An internal chip register, like `acc` or `dat`. -/
@@ -45,7 +55,7 @@ deriving Repr, Lean.ToExpr
 | .simpleIO i => some (.simpleIO i)
 | .null | .internal _ => none
 
-@[macro_inline] def Reg.ofPin : Pin ξ ι → Reg ρ ξ ι
+@[inline] def Reg.ofPin : Pin ξ ι → Reg ρ ξ ι
 | .xBus x => .xBus x
 | .simpleIO i => .simpleIO i
 
@@ -62,36 +72,31 @@ namespace RegOrInt
 | .reg r => r.pin?
 | .int _ => none
 
-@[macro_inline] def ofPin : Pin ξ ι → RegOrInt ρ ξ ι :=
+@[inline] def ofPin : Pin ξ ι → RegOrInt ρ ξ ι :=
   fun p => .reg (.ofPin p)
 
 -- Some convenience constructors so I don't have to type `.reg (.internal .acc)` all the time
 
-@[macro_inline] def internal : ρ → RegOrInt ρ ξ ι :=
+@[inline] def internal : ρ → RegOrInt ρ ξ ι :=
   .reg ∘ .internal
 
-@[macro_inline] def xBus : ξ → RegOrInt ρ ξ ι :=
+@[inline] def xBus : ξ → RegOrInt ρ ξ ι :=
   .reg ∘ .xBus
 
-@[macro_inline] def simpleIO : ι → RegOrInt ρ ξ ι :=
+@[inline] def simpleIO : ι → RegOrInt ρ ξ ι :=
   .reg ∘ .simpleIO
 
-@[macro_inline] def null : RegOrInt ρ ξ ι :=
+@[inline] def null : RegOrInt ρ ξ ι :=
   .reg .null
 
 end RegOrInt
 
-namespace Notation
-
 /-! Notation to make writing `Instruction` easier. -/
 
 set_option hygiene false
-scoped notation "R" => Instruction.Reg ρ ξ ι
-scoped notation "R/I" => Instruction.RegOrInt ρ ξ ι
+local notation "R" => Instruction.Reg ρ ξ ι
+local notation "R/I" => Instruction.RegOrInt ρ ξ ι
 
-end Instruction.Notation
-
-open Instruction.Notation in
 /-- All of the MC-series instructions.
 Type parameters:
 - `Λ` is for *l*abels
@@ -120,8 +125,6 @@ inductive Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : Type x)
 -- Undocumented instruction
 -- | gen : ι → R/I → R/I → Instruction .. -- TODO: add this back in
 deriving Inhabited, Repr, Lean.ToExpr
-
-namespace Instruction
 
 -- Needed for the derived instances for e.g. `MCParser.Line`,
 -- and `instToExprOptionOfToLevel` only allows a type with one universe level
@@ -158,6 +161,7 @@ def mapΛ (instr : Instruction (Λ : Type u) (ρ : Type v) (ξ : Type w) (ι : T
   | .dgt x => .dgt x | .dst x y => .dst x y
   | .teq x y => .teq x y | .tgt x y => .tgt x y | .tlt x y => .tlt x y | .tcp x y => .tcp x y
 
+open Instruction in
 @[specialize] def mapΛM {m : Type u → Type v} [Functor m] [Pure m]
     {Λ : Type u} {Λ' : Type u} {ρ : Type u} {ξ : Type u} {ι : Type u}
     (f : Λ → m Λ') (instr : Instruction Λ ρ ξ ι)
