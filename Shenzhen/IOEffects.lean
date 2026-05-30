@@ -1,12 +1,14 @@
-import Shenzhen.Integer
-import Shenzhen.SimpleIOData
+module
+
+public import Shenzhen.Integer
+public import Shenzhen.SimpleIOData
 import Shenzhen.Util
 
 /-- `IOEffects ξ ι α` represents a value of type `α`, possibly delayed until sleep, or reads/writes/peeks from XBus pins happen.
   We also record reads and writes from simple I/O pins, although they don't block.
   - `ξ` is the type of *X*Bus pins.
   - `ι` is the type of simple *I*/O pins.-/
-inductive IOEffects (ξ : Type u) (ι : Type v) (α : Type x)
+public inductive IOEffects (ξ : Type u) (ι : Type v) (α : Type x)
 /-- Just return a value immediately, without doing any effects. -/
 | pure (a : α)
 /-- `xBusRead pin next` represents a computation delayed until a value `d`
@@ -31,6 +33,7 @@ inductive IOEffects (ξ : Type u) (ι : Type v) (α : Type x)
 -- `xBusWrite` and `.simpleIOWrite`, since the written data often requires data-dependent effects
 
 namespace IOEffects
+public section
 
 instance [Inhabited α] : Inhabited (IOEffects ξ ι α) :=
   ⟨pure default⟩
@@ -51,6 +54,8 @@ def bind (mx : IOEffects ξ ι α) (f : α → IOEffects ξ ι β) : IOEffects �
 
 instance : Monad (IOEffects ξ ι) where
   bind := bind
+
+end
 
 section
 
@@ -90,6 +95,8 @@ instance : LawfulMonad (IOEffects ξ ι) where
 
 end
 
+public section
+
 /-- In `sleep` or `xBusPoll` state -/
 abbrev isSleep : IOEffects ξ ι α → Bool
 | .sleep .. | .xBusPoll .. => true
@@ -124,4 +131,5 @@ where
         | [] => s!"ran out of inputs; about to read p{pin}"
         | d :: inputs' => s!"read {d} from p{pin}\n{go inputs' (next d.toSimpleIOData)}"
 
+end
 end IOEffects

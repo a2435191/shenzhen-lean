@@ -1,11 +1,15 @@
-import Shenzhen.Integer
+module
 
-structure SimpleIOData where
+public import Shenzhen.Integer
+import Shenzhen.Util
+
+public structure SimpleIOData where
   n : UInt8
   le : n ≤ 100 := by decide
 deriving DecidableEq
 
 namespace SimpleIOData
+public section
 
 instance : Repr SimpleIOData where
   reprPrec x prec := reprPrec x.n prec
@@ -36,6 +40,7 @@ instance {n} : OfNat SimpleIOData n where
 @[inline] def clampToNat : SimpleIOData → Nat
 | { n, .. } => n.toNat
 
+end
 end SimpleIOData
 
 theorem UInt8.bitVec_not_msb_iff {n : UInt8} : n.toBitVec.msb = false ↔ n < 128 := by
@@ -55,6 +60,7 @@ theorem UInt8.toInt8_le {a b : UInt8} (ha : a < 128) (hb : b < 128) : a.toInt8 �
   rw [Int.ofNat_le]
 
 namespace SimpleIOData
+public section
 
 def toInteger : SimpleIOData → Integer
 | ⟨n, le⟩ =>
@@ -83,10 +89,11 @@ instance : Coe SimpleIOData Integer :=
 @[inline] instance : Max SimpleIOData :=
   maxOfLe
 
+end
 end SimpleIOData
 
 /-- Cast an `Integer` to `SimpleIOData` by clamping its value between `0` and `100`, inclusive. -/
-def Integer.toSimpleIOData : Integer → SimpleIOData
+public def Integer.toSimpleIOData : Integer → SimpleIOData
 | { n, .. } =>
   let n' := Clamp.clamp n 0 100
   ⟨n'.toUInt16.toUInt8, by

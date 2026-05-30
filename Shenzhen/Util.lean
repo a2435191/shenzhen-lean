@@ -1,15 +1,21 @@
+module
+
 import Batteries.Data.Fin.Basic
 import Batteries.Data.Fin.Lemmas
 import Batteries.Tactic.Lemma
 
+public import Lean.Expr
+import Lean.Meta.AppBuilder
+
 /-- `n` spaces -/
-def String.whitespace (n : Nat) : String :=
+public def String.whitespace (n : Nat) : String :=
   String.pushn "" ' ' n
 
 namespace Fin
 
 /-- Find the smallest `j > i` s.t. `p j = true`, or `none` if no such `j` exists. -/
-@[specialize] def nextFinIdx? (i : Fin n) (p : Fin n → Bool) : Option (Fin n) :=
+@[specialize]
+public def nextFinIdx? (i : Fin n) (p : Fin n → Bool) : Option (Fin n) :=
   if h : i.val + 1 < n then
     letI iSucc := mk (i + 1) h
     if p iSucc then some iSucc else nextFinIdx? iSucc p
@@ -42,13 +48,15 @@ theorem nextFinIdx?_eq {i : Fin n} : nextFinIdx? i p = find? fun j => j > i && p
         | .inl h => simp [h]; omega
         | .inr (.inl h) => simp [h] at *; intro; assumption
         | .inr (.inr h) => congr 2; apply propext; omega
-end Fin
 
 @[always_inline]
-def Fin.succ' : Fin n → Fin n
+public def succ' : Fin n → Fin n
 | ⟨k, lt⟩ => ⟨(k + 1) % n, Nat.mod_lt _ (Nat.zero_lt_of_lt lt)⟩
 
+end Fin
+
 namespace Clamp
+public section
 
 variable {α : Type u} [LE α] [DecidableLE α]
 
@@ -87,8 +95,10 @@ instance : @Std.Refl Int16 LE.le :=
 instance : @Std.Total Int16 LE.le where
   total a b := (Int16.le_or_lt a b).imp_right Int16.le_of_lt
 
+end
 end Clamp
 
+-- TODO move this to its own file
 namespace Lean.Meta
 
 /-! Bring some functions out of the `MetaM` monad. -/
@@ -99,7 +109,7 @@ def mkDecide' (p inst : Expr) : Expr :=
 
 /-- Returns a proof for `p : Prop` using `decide p`, where
   `inst : Decidable p`. -/
-def mkDecideProof' (p inst : Expr) : Expr :=
+public def mkDecideProof' (p inst : Expr) : Expr :=
   -- folowing `Meta.mkDecideProof`
   let decP := mkDecide' p inst
   let decEqTrue := mkApp3 (mkConst ``Eq [1]) (mkConst ``Bool) decP (mkConst ``true)
@@ -141,6 +151,8 @@ end Lean.Meta
 --     (arr.toList.map mkConst)
 
 -- #eval (test).map (· 35)
+
+public section
 
 @[inline, simp] def Array.mapFinIdx' (as : Array α) (f : Fin as.size → α → β) : Array β :=
   as.mapFinIdx fun i a h => f ⟨i, h⟩ a

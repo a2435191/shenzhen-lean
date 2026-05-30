@@ -1,14 +1,21 @@
-import Shenzhen.IntLemmas
-import Shenzhen.Util
-import Lean
+module
 
-structure Integer where
+import all Shenzhen.IntLemmas
+public meta import Shenzhen.Util -- TODO
+import Shenzhen.Util
+-- TODO: move meta defs to their own file
+
+import Lean
+public import Lean.Elab.Term.TermElabM
+
+public structure Integer where
   n : Int16
   le : n ≤ 999 := by decide
   ge : -999 ≤ n := by decide
 deriving DecidableEq, BEq
 
 namespace Integer
+public section
 
 instance : Repr Integer where
   reprPrec x prec := reprPrec x.n prec
@@ -25,11 +32,11 @@ instance : Inhabited Integer :=
 instance : Coe Integer Int16 :=
   ⟨(·.n)⟩
 
-lemma n_ne_minValue {x : Integer} : x.n ≠ .minValue := fun hn =>
+private lemma n_ne_minValue {x : Integer} : x.n ≠ .minValue := fun hn =>
   have := hn ▸ x.ge
   by contradiction
 
-lemma n_ne_minValue' {n : Int16} (le : n ≤ 999) (ge : -999 ≤ n) : n ≠ .minValue :=
+private lemma n_ne_minValue' {n : Int16} (le : n ≤ 999) (ge : -999 ≤ n) : n ≠ .minValue :=
   @n_ne_minValue ⟨n, le, ge⟩
 
 @[inline] instance : LT Integer :=
@@ -46,7 +53,8 @@ instance : DecidableLE Integer :=
 
 open Int16
 
-def ofInt (n : Int) (h₁ : n ≤ 999) (h₂ : -999 ≤ n) :=
+-- TODO move to own file so non-meta code can use this too
+meta def ofInt (n : Int) (h₁ : n ≤ 999) (h₂ : -999 ≤ n) :=
   have : Int16.ofInt n ≤ .ofInt 999 ∧ Int16.ofInt (-999) ≤ .ofInt n := by
     constructor <;> (
       apply (Int16.ofInt_le_iff_le ..).mpr
@@ -158,8 +166,10 @@ Additionally, the sign of the returned value is the same as the sign of `d` for
     | 2 => x' - toReplace * 100 + digit * 100
     | _ => 0
 
+end
+
 open Lean in
-instance : ToExpr Integer where
+meta instance : ToExpr Integer where
   toTypeExpr := mkConst ``Integer
   toExpr
   | { n, .. } =>
@@ -175,6 +185,7 @@ where
       (mkApp4 (mkConst ``LE.le [0]) (mkConst ``Int16) (mkConst ``instLEInt16) a b)
       (mkApp2 (mkConst ``Int16.decLe) a b)
 
+-- TODO: make local
 elab "test_Integer.instToExpr" sign:("-" noWs)? x:num : term =>
   let n : Int := (if sign.isSome then -1 else 1) * x.getNat
   if h : n ≤ 999 ∧ -999 ≤ n then

@@ -1,4 +1,5 @@
 import Shenzhen.Instruction
+import Shenzhen.Util
 
 /-- `IP m` is the type of an instruction pointer for an `MC4000` with `m` instructions.
   Chips can have zero instructions, so `IP m` is equivalent to `if m = 0 then Unit else Fin m`, but
