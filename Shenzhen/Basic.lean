@@ -1,3 +1,5 @@
+module
+
 import Shenzhen.Compile
 import Shenzhen.Instruction
 import Shenzhen.Integer
@@ -6,6 +8,7 @@ import Shenzhen.MCParser
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
 import Shenzhen.IOEffects
+import Shenzhen.Notation
 
 /-- This is the "Touch Activated Light Controller" on page `CSM_TD_100650` of the manual.
 For now (TODO), the input and output are simulated by more `MC4000`s. -/

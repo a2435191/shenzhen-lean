@@ -124,7 +124,7 @@ def mkListLit' (type : Expr) (xs : List Expr) (u := levelZero) : Expr :=
 def mkArrayLit' (type : Expr) (xs : List Expr) (u := levelZero) : Expr :=
   mkApp2 (mkConst ``List.toArray [u]) type (mkListLit' type xs u)
 
-local instance instDecidableArraySizeEq.{u} {α : Type u} {arr : Array α} {n : Nat} : Decidable (arr.size = n) :=
+public instance instDecidableArraySizeEq.{u} {α : Type u} {arr : Array α} {n : Nat} : Decidable (arr.size = n) :=
   inferInstance
 
 public def mkVector (type : Expr) (xs : List Expr) (u := levelZero) : Expr :=
