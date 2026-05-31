@@ -17,8 +17,8 @@ import Batteries.Data.Fin.Basic
 /-! # The interface for the MC4000, MC4000X, and MC6000 microcontrollers -/
 -- TODO at some point add MC4010 math coprocessor. Not sure if that should use this interface though
 
-namespace MC
 public section -- TODO tighten
+namespace MC
 
 /-- `Registers ρ σ` is the interface for an implentation of internal registers for a chip type,
   where a value of `ρ` indicates a specific register, and `σ` holds the state of the registers.  -/
@@ -51,6 +51,8 @@ public structure PartType where
   InternalReg : Type
   /-- The type of internal register state, i.e. all registers -/
   InternalRegState : Type
+  /-- The internal state of a chip that has'nt executed anything -/
+  blank : InternalRegState
   [inst : Registers InternalReg InternalRegState]
 
 namespace PartType
@@ -78,8 +80,6 @@ abbrev Instruction (τ : PartType) (numInstr : Nat) :=
 @[expose]
 abbrev RegOrInt (τ : PartType) :=
   _root_.Instruction.RegOrInt τ.InternalReg τ.XBus τ.SimpleIO
-
-end
 
 namespace InstructionState
 
@@ -140,7 +140,6 @@ public structure Chip where
   instrs : Vector (Instruction τ m) m
 
 namespace Chip
-public section
 variable {τ : PartType} (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat τ.InternalReg τ.XBus τ.SimpleIO))
 
 @[expose] abbrev mk'.jmpLabelsInBounds : Bool :=
@@ -324,16 +323,16 @@ public def toString (s : State) [ToString s.τ.InternalRegState] (inputs : List 
   ]
 
 end State
+end Chip
 
--- for now, just MC4000s
 /-- The data in the simulation that doesn't change during execution. -/
 public structure Board (n : ℕ) where
-  chips : Vector MC4000 n
-  simpleIOConns : Conns n MC4000.SimpleIO
-  xBusConns : Conns n MC4000.XBus
+  chips : Vector Chip n
+  simpleIOConns : Conns ((i : Fin n) × chips[i].τ.SimpleIO)
+  xBusConns : Conns ((i : Fin n) × chips[i].τ.XBus)
 
-public def Board.initialStates (b : Board n) : Vector MC4000.State n :=
-  b.chips.map fun { m, .. } => .blank m
+public def Board.initialStates (b : Board n) : Vector Chip.State n :=
+  b.chips.map fun { m, τ, .. } => .blank τ τ.blank m
 
 namespace MC4000
 
