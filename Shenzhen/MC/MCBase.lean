@@ -41,6 +41,7 @@ structure InstructionState (σ : Type) (numInstr : Nat) where
   ip : IP numInstr
 deriving Repr
 
+-- TDOO maybe make this a typeclass
 /-- The type of some chip, so just the metadata associated with every kind of MCxxxx product.
   Doesn't include per-chip information like the instructions or state. -/
 public structure PartType where
@@ -58,7 +59,7 @@ variable (τ : PartType)
 
 @[reducible, expose] def XBus := Fin τ.numXBusPins
 @[reducible, expose] def SimpleIO := Fin τ.numSimpleIOPins
-@[reducible, expose] def InstructionState (m : ℕ) := MC.InstructionState τ.InternalReg m
+@[reducible, expose] def InstructionState (m : ℕ) := MC.InstructionState τ.InternalRegState m
 
 end PartType
 
@@ -208,7 +209,8 @@ where
       let d ← readRegOrInt src
       match dst with
       | .null => return
-      | .internal reg => modify ({· with acc := d})
+        -- TODO: add helper to `Effects` for this stuff
+      | .internal reg => modify fun s => { s with registers := τ.inst.write reg d s.registers }
       | .simpleIO i =>
         let d := d.toSimpleIOData
         ret (.simpleIOWrite i d pure)
@@ -224,13 +226,13 @@ where
     | .add ri => doArith ri (· + ·)
     | .sub ri => doArith ri (· - ·)
     | .mul ri => doArith ri (· * ·)
-    | .not => modify (.modifyAcc Integer.not)
+    | .not => modify (.modifyAcc (inst := τ.inst) Integer.not) -- TODO clunky
     | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
     | .dst ri₁ ri₂ =>
       -- set the `ri₁`th digit of `acc` to `ri₂`
       let digit ← readRegOrInt ri₁
       let num ← readRegOrInt ri₂
-      modify (.modifyAcc (Integer.setDigit · digit num))
+      modify (.modifyAcc (inst := τ.inst) (Integer.setDigit · digit num))
     -- Test (comparison)
     | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
     | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
@@ -245,13 +247,14 @@ where
     match ri with
     | .int n => return n
     | .null => return 0
-    | .internal _ => return (←get)
+    | .internal reg => return Registers.read (self := τ.inst) reg (←get).registers -- TODO clunky
     | .xBus x => do ret (.xBusRead x pure)
     | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
 
   /-- Set the `acc` register to `f acc (←readRegOrInt ri)`. -/
   doArith (ri : RegOrInt τ) (f : Integer → Integer → Integer) : Effects τ m Unit := do
     let d ← readRegOrInt ri
+    have := τ.inst -- TODO clunky
     modify (.modifyAcc' f d)
 
   /-- Run the comparison function `f` with `ri₁` and `ri₂` as inputs, then
