@@ -302,10 +302,10 @@ public structure State where
 
 namespace State
 
-public def blank (τ : PartType) (emptyRegisters : τ.InternalRegState) (m : ℕ) : State :=
+public def blank (τ : PartType) (m : ℕ) : State :=
   { m, τ,
     instructionState := pure
-      { registers := emptyRegisters,
+      { registers := τ.blank,
         cond := ⟨Vector.replicate _ false, false, false⟩,
         ip := IP.null },
     simpleIOOut := Vector.replicate _ 0, waitingToWrite := Vector.replicate _ false }
@@ -332,7 +332,7 @@ public structure Board (n : ℕ) where
   xBusConns : Conns ((i : Fin n) × chips[i].τ.XBus)
 
 public def Board.initialStates (b : Board n) : Vector Chip.State n :=
-  b.chips.map fun { m, τ, .. } => .blank τ τ.blank m
+  b.chips.map fun { m, τ, .. } => .blank τ m
 
 namespace MC4000
 
