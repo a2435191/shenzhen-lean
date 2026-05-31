@@ -83,7 +83,7 @@ end
 
 namespace InstructionState
 
-instance [ToString ρ] {m} : ToString (InstructionState ρ m) where
+instance [ToString σ] {m} : ToString (InstructionState σ m) where
   toString
   | { registers, cond := c, ip } =>
     let condStr := match c.boolFlags with
@@ -94,6 +94,9 @@ instance [ToString ρ] {m} : ToString (InstructionState ρ m) where
     s!"[registers = {registers}; ip = {repr ip}; \
     cond = {condStr}; \
     hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst})"
+
+instance {τ : PartType} [ToString τ.InternalRegState] : ToString (τ.InstructionState m) :=
+  inferInstance
 
 -- TODO
 -- instance : Inhabited (InstructionState m) :=
@@ -274,8 +277,11 @@ public structure State where
   -- `Vector`s below anyway
   m : ℕ
 
+  -- Similarly to `m`, this is not a type parameter
+  τ : PartType
+
   -- Only changes at instruction boundaries
-  instructionState : IOEffects XBus SimpleIO (InstructionState m)
+  instructionState : IOEffects τ.XBus τ.SimpleIO (τ.InstructionState m)
 
   -- now, the state that can be mutated between ticks inside an instruction
 
@@ -286,26 +292,29 @@ public structure State where
     This may change from one CPU cycle to another within an instruction.
     For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
     out of `p0` before this instruction. -/
-  simpleIOOut : Vector SimpleIOData numSimpleIOPins
+  simpleIOOut : Vector SimpleIOData τ.numSimpleIOPins
   -- TODO do I also need to keep track of a boolean flag for each simple I/O pin here?
 
   /-- See the documentation comments in `MC4000.lean`. This represents whether each
     XBus pin is ready to write. This may change between CPU cycles inside an instruction because
     XBus writes set it and XBus reads clear it. -/
-  waitingToWrite : Vector Bool numXBusPins
-deriving Inhabited
+  waitingToWrite : Vector Bool τ.numXBusPins
+-- deriving Inhabited -- TODO
 
 namespace State
 
-public def blank (m : ℕ) : State :=
-  { m,
-    instructionState := pure (.blank m),
-    simpleIOOut := #v[0, 0], waitingToWrite := #v[false, false] }
+public def blank (τ : PartType) (emptyRegisters : τ.InternalRegState) (m : ℕ) : State :=
+  { m, τ,
+    instructionState := pure
+      { registers := emptyRegisters,
+        cond := ⟨Vector.replicate _ false, false, false⟩,
+        ip := IP.null },
+    simpleIOOut := Vector.replicate _ 0, waitingToWrite := Vector.replicate _ false }
 
-@[inline] def setWaitingToWrite (i : XBus) (val : Bool) : State → State :=
-  fun state => { state with waitingToWrite := Vector.set state.waitingToWrite i val }
+@[inline] def setWaitingToWrite (s : State) (i : s.τ.XBus) (val : Bool) : State :=
+  { s with waitingToWrite := Vector.set s.waitingToWrite i val }
 
-public def toString (s : State) (inputs : List Integer := []) (indent : Nat := 0) : String :=
+public def toString (s : State) [ToString s.τ.InternalRegState] (inputs : List Integer := []) (indent : Nat := 0) : String :=
   let ws := String.whitespace indent
   ws ++ ("\n" ++ ws).intercalate [
     s!"m = {s.m}",
@@ -315,7 +324,6 @@ public def toString (s : State) (inputs : List Integer := []) (indent : Nat := 0
   ]
 
 end State
-end MC4000
 
 -- for now, just MC4000s
 /-- The data in the simulation that doesn't change during execution. -/
