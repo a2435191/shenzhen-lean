@@ -325,14 +325,26 @@ public def toString (s : State) [ToString s.τ.InternalRegState] (inputs : List 
 end State
 end Chip
 
-/-- The data in the simulation that doesn't change during execution. -/
-public structure Board (n : ℕ) where
-  chips : Vector Chip n
-  simpleIOConns : Conns ((i : Fin n) × chips[i].τ.SimpleIO)
-  xBusConns : Conns ((i : Fin n) × chips[i].τ.XBus)
+namespace Board
 
-public def Board.initialStates (b : Board n) : Vector Chip.State n :=
+@[expose]
+public abbrev SimpleIOConns (chips : Vector Chip n) :=
+  Conns ((i : Fin n) × chips[i].τ.SimpleIO)
+
+@[expose]
+public abbrev XBusConns (chips : Vector Chip n) :=
+  Conns ((i : Fin n) × chips[i].τ.XBus)
+
+/-- The data in the simulation that doesn't change during execution. -/
+public structure _root_.MC.Board (n : ℕ) where
+  chips : Vector Chip n
+  simpleIOConns : SimpleIOConns chips
+  xBusConns : XBusConns chips
+
+public def initialStates (b : Board n) : Vector Chip.State n :=
   b.chips.map fun { m, τ, .. } => .blank τ m
+
+end Board
 
 namespace MC4000
 
