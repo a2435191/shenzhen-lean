@@ -497,17 +497,33 @@ theorem setMaskForPureAndSleep_count_le (s t) : (setMaskForPureAndSleep s t (n :
     _ = (t.map fun b => !b).countP id := by simp [Vector.map_snd_zip]
     _ ≤ _ := by rw [Vector.count_eq_countP]; apply Vector.countP_map_le_countP; simp
 
-theorem resolveXBusReadsAndPeeks_count_le (xc s t) : (resolveXBusReadsAndPeeks xc s t (n := n)).2.count false ≤ t.count false := by
+-- theorem resolveXBusReadOrPeek_count_le : (resolveXBusReadOrPeek)
+
+theorem resolveXBusReadsAndPeeks_count_le (s xc t) : (resolveXBusReadsAndPeeks s xc t (n := n)).2.count false ≤ t.count false := by
   simp only [resolveXBusReadsAndPeeks, Fin.getElem_fin]
-  let motive (x : Vector State n × Vector Bool n) : Prop :=
+  let motive (x : Subtype (sameInvariants s) × Vector Bool n) : Prop :=
     x.2.count false ≤ t.count false
   show motive _
   apply List.foldlRecOn
   · exact Nat.le_of_eq rfl
   · intro (s, t') (h : t'.count false ≤ t.count false) i _
-    unfold motive
-    repeat' split
-    all_goals first | assumption | grind [Vector.count_set]
+    -- TODO clean up
+    unfold motive resolveXBusReadOrPeek
+    split
+    · assumption
+    · simp_all only [List.mem_finRange, Fin.getElem_fin]
+      split
+      · split
+        · assumption
+        · simp only [Vector.count_set, beq_false, Bool.not_eq_eq_eq_not, Bool.not_true,
+            Bool.false_eq_true, ↓reduceIte]
+          omega
+      · simp_all only [Fin.getElem_fin, Bool.not_eq_true]
+        split
+        · assumption
+        · simp only [Vector.count_set, beq_false, Bool.not_eq_eq_eq_not, Bool.not_true,
+          Bool.false_eq_true, ↓reduceIte, Nat.add_zero, Nat.sub_le_iff_le_add]; omega
+      · assumption
 
 end
 
