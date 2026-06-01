@@ -53,7 +53,7 @@ deriving Repr, Inhabited
 /-- The type of some chip, so just the metadata associated with every kind of MCxxxx product.
   Doesn't include per-chip information like the instructions or state.
   `ρ` is the type of *which* register (e.g. `acc` vs. `dat`); `σ` is the type of the entire register state. -/
-public class PartType (numXBusPins numSimpleIOPins : ℕ) (ρ σ : Type)
+public class PartType (numXBusPins numSimpleIOPins : outParam ℕ) (ρ σ : outParam Type)
     [Registers ρ σ] [ToString σ]
 -- deriving Inhabited
 
