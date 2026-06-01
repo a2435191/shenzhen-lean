@@ -51,7 +51,8 @@ deriving Repr, Inhabited
 
 -- TDOO maybe make this a typeclass
 /-- The type of some chip, so just the metadata associated with every kind of MCxxxx product.
-  Doesn't include per-chip information like the instructions or state. -/
+  Doesn't include per-chip information like the instructions or state.
+  `ρ` is the type of *which* register (e.g. `acc` vs. `dat`); `σ` is the type of the entire register state. -/
 public structure PartType (numXBusPins numSimpleIOPins : ℕ) (ρ σ : Type)
     [Registers ρ σ] [ToString σ]
 where
