@@ -275,17 +275,11 @@ where
   ret {m α} (bfx : IOEffects τ.XBus τ.SimpleIO α) : Effects m α :=
     fun is => bfx <&> (·, is)
 
-/-- The state of an executing chip -/
-public structure State where
-  -- Constant. Not a type parameter because then we'd just have to do `(m : ℕ) × State m` inside
-  -- `Vector`s below anyway
-  m : ℕ
-
-  -- Similarly to `m`, this is not a type parameter
-  τ : PartType
-
+/-- The state of an executing chip, parametrized on the number of instructions `m`
+  and the other fields (bundled in `τ : PartType` and made explicit) -/
+public structure State (m : ℕ) (τ : PartType numXBusPins numSimpleIOPins ρ σ) where
   -- Only changes at instruction boundaries
-  instructionState : IOEffects τ.XBus τ.SimpleIO (τ.InstructionState m)
+  instructionState : IOEffects XBus SimpleIO (InstructionState σ m)
 
   -- now, the state that can be mutated between ticks inside an instruction
 
@@ -296,40 +290,34 @@ public structure State where
     This may change from one CPU cycle to another within an instruction.
     For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
     out of `p0` before this instruction. -/
-  simpleIOOut : Vector SimpleIOData τ.numSimpleIOPins
+  simpleIOOut : Vector SimpleIOData numSimpleIOPins
   -- TODO do I also need to keep track of a boolean flag for each simple I/O pin here?
 
   /-- See the documentation comments in `MC4000.lean`. This represents whether each
     XBus pin is ready to write. This may change between CPU cycles inside an instruction because
     XBus writes set it and XBus reads clear it. -/
-  waitingToWrite : Vector Bool τ.numXBusPins
-
-instance : Inhabited State where
-  default := {
-    m := 1,
-    τ := default,
-    instructionState := pure (show InstructionState Unit 1 from default)
-    simpleIOOut := #v[],
-    waitingToWrite := #v[]
-  }
+  waitingToWrite : Vector Bool numXBusPins
 
 namespace State
 
-public def blank (τ : PartType) (m : ℕ) : State :=
-  { m, τ,
-    instructionState := pure
-      { registers := τ.blank,
+-- TODO: have this blank reg state as an instance I think
+public def blank (blankRegState : σ) : State m τ :=
+  { instructionState := pure
+      { registers := blankRegState,
         cond := ⟨Vector.replicate _ false, false, false⟩,
         ip := IP.null },
     simpleIOOut := Vector.replicate _ 0, waitingToWrite := Vector.replicate _ false }
 
-@[inline] def setWaitingToWrite (s : State) (i : s.τ.XBus) (val : Bool) : State :=
+instance [Inhabited σ] : Inhabited (State m τ) where
+  default := blank default
+
+@[inline] def setWaitingToWrite (s : State m τ) (i : XBus) (val : Bool) : State m τ :=
   { s with waitingToWrite := Vector.set s.waitingToWrite i val }
 
-public def toString (s : State) [ToString s.τ.InternalRegState] (inputs : List Integer := []) (indent : Nat := 0) : String :=
+public def toString (s : State m τ) (inputs : List Integer := []) (indent : Nat := 0) : String :=
   let ws := String.whitespace indent
   ws ++ ("\n" ++ ws).intercalate [
-    s!"m = {s.m}",
+    s!"m = {m}",
     s!"simpleIOOut = {s.simpleIOOut.toList}",
     s!"waitingToWrite = {s.waitingToWrite.toList}",
     s!"instructionState = \n{s.instructionState.toString inputs (indent + 2)}"
