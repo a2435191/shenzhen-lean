@@ -30,6 +30,8 @@ class Registers (ρ : outParam Type) (σ : Type) where
   modify : ρ → (Integer → Integer) → σ → σ := fun which f s =>
     let d := read which s
     write which (f d) s
+deriving instance Inhabited for Registers -- TODO create manual instance or get this warning to go away
+attribute [reducible] instInhabitedRegisters.default
 
 /-- Represents the state during some instruction. While executing an instruction (possibly across multiple, in the case that we block on XBus),
   all fields stay the same.
@@ -39,7 +41,7 @@ structure InstructionState (σ : Type) (numInstr : Nat) where
   registers : σ
   cond : ConditionalState numInstr
   ip : IP numInstr
-deriving Repr
+deriving Repr, Inhabited
 
 -- TDOO maybe make this a typeclass
 /-- The type of some chip, so just the metadata associated with every kind of MCxxxx product.
@@ -53,7 +55,7 @@ public structure PartType where
   InternalRegState : Type
   /-- The internal state of a chip that has'nt executed anything -/
   blank : InternalRegState
-  [inst : Registers InternalReg InternalRegState]
+  inst : Registers InternalReg InternalRegState
 
 namespace PartType
 
@@ -62,6 +64,16 @@ variable (τ : PartType)
 @[reducible, expose] def XBus := Fin τ.numXBusPins
 @[reducible, expose] def SimpleIO := Fin τ.numSimpleIOPins
 @[reducible, expose] def InstructionState (m : ℕ) := MC.InstructionState τ.InternalRegState m
+
+instance : Inhabited PartType where
+  default := {
+    numXBusPins := 0
+    numSimpleIOPins := 0
+    InternalReg := Unit
+    InternalRegState := Unit
+    blank := ()
+    inst := Inhabited.default
+  }
 
 end PartType
 
@@ -298,7 +310,15 @@ public structure State where
     XBus pin is ready to write. This may change between CPU cycles inside an instruction because
     XBus writes set it and XBus reads clear it. -/
   waitingToWrite : Vector Bool τ.numXBusPins
--- deriving Inhabited -- TODO
+
+instance : Inhabited State where
+  default := {
+    m := 1,
+    τ := default,
+    instructionState := pure (show InstructionState Unit 1 from default)
+    simpleIOOut := #v[],
+    waitingToWrite := #v[]
+  }
 
 namespace State
 

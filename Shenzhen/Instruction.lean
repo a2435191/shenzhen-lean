@@ -13,7 +13,7 @@ structure ConditionalState (numInstr : Nat) where
   hasRun : Vector Bool numInstr
   posEnabled : Bool
   negEnabled : Bool
-deriving Repr
+deriving Repr, Inhabited
 
 def ConditionalState.boolFlags : ConditionalState m → Bool × Bool
 | ⟨_, pos, neg⟩ => (pos, neg)
