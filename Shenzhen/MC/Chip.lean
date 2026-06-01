@@ -55,24 +55,22 @@ deriving Repr, Inhabited
   `ρ` is the type of *which* register (e.g. `acc` vs. `dat`); `σ` is the type of the entire register state. -/
 public class PartType (numXBusPins numSimpleIOPins : ℕ) (ρ σ : Type)
     [Registers ρ σ] [ToString σ]
+-- deriving Inhabited
 
 namespace PartType
 
-variable (τ : PartType)
+variable [Registers ρ σ] [ToString σ] [PartType numXBusPins numSimpleIOPins ρ σ]
 
-@[reducible, expose] def XBus := Fin τ.numXBusPins
-@[reducible, expose] def SimpleIO := Fin τ.numSimpleIOPins
-@[reducible, expose] def InstructionState (m : ℕ) := MC.InstructionState τ.InternalRegState m
+@[reducible, expose] def XBus [PartType numXBusPins numSimpleIOPins ρ σ] :=
+  Fin numXBusPins
+@[reducible, expose] def SimpleIO [PartType numXBusPins numSimpleIOPins ρ σ] :=
+  Fin numSimpleIOPins
+@[reducible, expose] def InstructionState [PartType numXBusPins numSimpleIOPins ρ σ] (m : ℕ) :=
+  MC.InstructionState σ m
 
-instance : Inhabited PartType where
-  default := {
-    numXBusPins := 0
-    numSimpleIOPins := 0
-    InternalReg := Unit
-    InternalRegState := Unit
-    blank := ()
-    inst := Inhabited.default
-  }
+-- TODO: again, `deriving` instance doesn't work
+instance : Inhabited (PartType numXBusPins numSimpleIOPins ρ σ) where
+  default := ⟨⟩
 
 end PartType
 
