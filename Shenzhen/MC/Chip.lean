@@ -139,15 +139,11 @@ def modifyAcc' [Registers ρ σ] (f : Integer → Integer → Integer) (other : 
 
 end InstructionState
 
--- TODO: consider parametrizing `Chip` on `τ`, so `MC4000 := Chip MC4000.PartType` or something
--- TODO: consider also parametrizing it on `m`
-open PartType in
-public structure Chip where
-  /-- The number of instructions on the chip. -/
-  {m : outParam Nat}
-  τ : PartType
+-- TODO should this still be an explicit parameter?
+/-- `m` is the number of instructions on the chip -/
+public structure Chip (m : outParam ℕ) (τ : PartType numXBusPins numSimpleIOPins ρ σ) where
   flags : Vector ConditionalFlag m
-  instrs : Vector (Instruction τ m) m
+  instrs : Vector (Instruction m) m
 
 namespace Chip
 variable {τ : PartType} (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat τ.InternalReg τ.XBus τ.SimpleIO))
