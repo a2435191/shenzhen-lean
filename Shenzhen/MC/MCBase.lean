@@ -346,7 +346,7 @@ public def initialStates (b : Board n) : Vector Chip.State n :=
 
 end Board
 
-namespace MC4000
+namespace Chip
 
 /-! ## XBus semantics
   I believe that when a chip executes an XBus read or write, the XBus pin sets a flag to
@@ -368,50 +368,85 @@ namespace MC4000
                  < `tick end`.
 -/
 
+/-- Compute the first index of an XBus write in `states` s.t. it is on a pin connected to `whichPin`,
+    its `alreadyTicked` bit is not set, and its `waiting-to-write` flag is set.
+    Also return the `(outPin, d, next)` arguments to the `.xBusWrite` constructor. -/
+def findWrite? (states : Vector State n) (alreadyTicked : Vector Bool n)
+    (xBusConns : Conns ((i : Fin n) × states[i].τ.XBus)) (whichPin : (i : Fin n) × states[i].τ.XBus)
+    : Option ((j : Fin n) × states[j].τ.XBus × Integer × (Unit → IOEffects states[j].τ.XBus states[j].τ.SimpleIO (states[j].τ.InstructionState states[j].m))) :=
+  Fin.findSome? (n := n) fun j =>
+    if !alreadyTicked[j] then
+      match h : states[j] with
+      | ⟨m, τ, .xBusWrite pin d next, _, waitingToWrite⟩ =>
+        let pin' : states[j].τ.XBus := cast (by simp [h]) pin
+        if waitingToWrite[pin] && xBusConns.connected whichPin ⟨j, pin'⟩ then
+          some ⟨j, pin', d, cast (by simp [h]) next⟩
+        else none
+      | _ => none
+    else none
+
+def resolveXBusReadOrPeek (states : Vector State n) (alreadyTicked : Vector Bool n)
+    (xBusConns : Conns ((i : Fin n) × states[i].τ.XBus))
+    (i : Fin n) : Vector State n × Vector Bool n :=
+  if alreadyTicked[i] then (states, alreadyTicked)
+  else
+    match states[i].instructionState with
+    | .xBusRead pin next =>
+      match findWrite? states alreadyTicked xBusConns ⟨i, pin⟩ with
+      | .some ⟨j, pin', d, next'⟩ =>
+        let states' := states
+          |>.set i { states[i] with instructionState := next d }
+          -- TODO: somewhere else in some comment I say that this is tolerant of multiple writes, idt that's true since we clear `waitingToWrite[pin]` here? Think about this
+          |>.set j { states[j] with instructionState := next' (), waitingToWrite := states[j].waitingToWrite.set pin' false }
+        (states', alreadyTicked) -- Don't update mask— we might have more "free" operations (second bullet point below) to do
+      | none => (states, alreadyTicked.set i true) -- update mask since this read blocks, meaning we're done for the tick
+    | .xBusPoll pin next =>
+      match findWrite? states alreadyTicked xBusConns ⟨i, pin⟩ with
+      | .some ⟨j, _, _, next'⟩ =>
+        let states' := states
+          |>.set i { states[i] with instructionState := next () }
+          -- don't resolve the write since this is just a poll
+        (states', alreadyTicked)
+      | none => (states, alreadyTicked.set i true) -- update mask since this poll blocks
+    | _ => (states, alreadyTicked)
+
+def sameInvariants (states states': Vector State n) : Prop :=
+  ∀ i : Fin n, states[i].m = states'[i].m ∧ states[i].τ = states'[i].τ
+
+theorem sameInvariants_refl {states : Vector State n} : sameInvariants states states :=
+  fun _ => ⟨rfl, rfl⟩
+
+theorem sameInvariants_resolveXBusReadAndPeek {states : Vector State n} {alreadyTicked conns i}
+    : sameInvariants states (resolveXBusReadOrPeek states alreadyTicked conns i).1 := by
+  intro j
+  unfold resolveXBusReadOrPeek
+  refine ⟨?_, ?_⟩
+  all_goals
+    repeat' split <;> try rfl
+    · simp only [Fin.getElem_fin, Vector.getElem_set]
+      split <;> (try split) <;> simp [*]
+    · simp only [Fin.getElem_fin, Vector.getElem_set]
+      split <;> simp [*]
+
 /-- Try to resolve the outermost XBus reads and peeks with writes for which the
   waiting-to-write flag has been set and `alreadyTicked` is `false`.
   `alreadyTicked[i] = true` indicates that `states[i]` has already been ticked and should be ignored.
 
   If there are multiple writers enabled as such, the order is unspecified (but really left-to-right in `states`). -/
-def resolveXBusReadsAndPeeks {n : ℕ} (xBusConns : Conns n XBus)
-    (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
-  (List.finRange n).foldl (init := (states, alreadyTicked)) fun (states, alreadyTicked) i =>
-    if alreadyTicked[i] then (states, alreadyTicked)
-    else
-      match states[i].instructionState with
-      | .xBusRead pin next =>
-        match findWrite? (i, pin) states alreadyTicked with
-        | .some ⟨j, pin', d, next'⟩ =>
-          let states' := states
-            |>.set i { states[i] with instructionState := next d }
-            -- TODO: somewhere else in some comment I say that this is tolerant of multiple writes, idt that's true since we clear `waitingToWrite[pin]` here? Think about this
-            |>.set j { states[j] with instructionState := next' (), waitingToWrite := states[j].waitingToWrite.set pin' false }
-          (states', alreadyTicked) -- Don't update mask— we might have more "free" operations (second bullet point below) to do
-        | none => (states, alreadyTicked.set i true) -- update mask since this read blocks, meaning we're done for the tick
-      | .xBusPoll pin next =>
-        match findWrite? (i, pin) states alreadyTicked with
-        | .some ⟨j, _, _, next'⟩ =>
-          let states' := states
-            |>.set i { states[i] with instructionState := next () }
-            -- don't resolve the write since this is just a poll
-          (states', alreadyTicked)
-        | none => (states, alreadyTicked.set i true) -- update mask since this poll blocks
-      | _ => (states, alreadyTicked)
-where
-  /-- Compute the first index of an XBus write in `states` s.t. it is on a pin connected to `whichPin`,
-    its `alreadyTicked` bit is not set, and its `waiting-to-write` flag is set.
-    Also return the `(outPin, d, next)` arguments to the `.xBusWrite` constructor. -/
-  findWrite? (whichPin : Fin n × XBus) (states : Vector State n) (alreadyTicked : Vector Bool n)
-      : Option ((j : Fin n) × XBus × Integer × (Unit → IOEffects XBus SimpleIO (InstructionState states[j].m))) :=
-    Fin.findSome? (n := n) fun j =>
-      if !alreadyTicked[j] then
-        match h : states[j] with
-        | ⟨m, .xBusWrite pin d next, _, waitingToWrite⟩ =>
-          if waitingToWrite[pin] && xBusConns.connected whichPin (j, pin) then
-            some ⟨j, pin, d, cast (by simp [h]) next⟩
-          else none
-        | _ => none
-      else none
+def resolveXBusReadsAndPeeks {n : ℕ} (states : Vector State n)
+    (xBusConns : Conns ((i : Fin n) × states[i].τ.XBus))
+    (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
+  let (⟨states', _⟩, alreadyTicked') : Subtype (sameInvariants states) × _ := (List.finRange n).foldl
+    (init := (⟨states, sameInvariants_refl⟩, alreadyTicked))
+    fun (⟨states, h⟩, alreadyTicked) i =>
+      letI castConns := cast (by simp_all [sameInvariants]) xBusConns
+      match h' : resolveXBusReadOrPeek states alreadyTicked castConns i with
+      | (states', alreadyTicked') =>
+        have : sameInvariants states states' := by
+          have : _ = states' := congrArg Prod.fst h'
+          rw [←this]; apply sameInvariants_resolveXBusReadAndPeek
+        (⟨states', by grind [sameInvariants]⟩, alreadyTicked')
+  (states', alreadyTicked')
 
 /-- Each chip writing XBus sets its own `waiting-to-write` flag. -/
 def setXBusWriteFlags {n : ℕ} (states : Vector State n) : Vector State n :=
