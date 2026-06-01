@@ -141,7 +141,7 @@ end InstructionState
 
 -- TODO should this still be an explicit parameter?
 /-- `m` is the number of instructions on the chip -/
-public structure Chip (m : outParam ℕ) (τ : PartType numXBusPins numSimpleIOPins ρ σ) where
+public structure Chip (m : ℕ) (τ : PartType numXBusPins numSimpleIOPins ρ σ) where
   flags : Vector ConditionalFlag m
   instrs : Vector (Instruction m) m
 
