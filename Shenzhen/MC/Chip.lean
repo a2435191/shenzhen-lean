@@ -86,7 +86,7 @@ open PartType
 
 @[expose]
 abbrev Instruction (numInstr : Nat) [inst : PartType numXBusPins numSimpleIOPins ρ σ] :=
-  _root_.Instruction (Fin numInstr) XBus SimpleIO
+  _root_.Instruction (Fin numInstr) ρ XBus SimpleIO
 
 @[expose]
 abbrev RegOrInt [inst : PartType numXBusPins numSimpleIOPins ρ σ] :=
