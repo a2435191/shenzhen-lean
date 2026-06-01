@@ -59,7 +59,7 @@ public class PartType (numXBusPins numSimpleIOPins : ℕ) (ρ σ : Type)
 
 namespace PartType
 
-variable [Registers ρ σ] [ToString σ] [PartType numXBusPins numSimpleIOPins ρ σ]
+variable [Registers ρ σ] [ToString σ]
 
 @[reducible, expose] def XBus [PartType numXBusPins numSimpleIOPins ρ σ] :=
   Fin numXBusPins
