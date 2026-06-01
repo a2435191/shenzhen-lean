@@ -57,9 +57,9 @@ public class PartType (numXBusPins numSimpleIOPins : outParam ℕ) (ρ σ : outP
     [Registers ρ σ] [ToString σ]
 -- deriving Inhabited
 
-namespace PartType
-
 variable [Registers ρ σ] [ToString σ]
+
+namespace PartType
 
 @[reducible, expose] def XBus [PartType numXBusPins numSimpleIOPins ρ σ] :=
   Fin numXBusPins
