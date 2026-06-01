@@ -41,5 +41,6 @@ end MC4000
 -- TODO do other microcontrollers
 
 open MC4000 in
-instance MC4000 : PartType :=
+def MC4000 : PartType :=
   { numXBusPins, numSimpleIOPins, InternalReg, InternalRegState, blank }
+-- TODO make instance?
