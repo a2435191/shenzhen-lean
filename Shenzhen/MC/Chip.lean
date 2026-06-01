@@ -53,11 +53,10 @@ deriving Repr, Inhabited
 /-- The type of some chip, so just the metadata associated with every kind of MCxxxx product.
   Doesn't include per-chip information like the instructions or state.
   `ρ` is the type of *which* register (e.g. `acc` vs. `dat`); `σ` is the type of the entire register state. -/
-public class PartType (numXBusPins numSimpleIOPins : outParam ℕ) (ρ σ : outParam Type)
-    [Registers ρ σ] [ToString σ]
+public class PartType (numXBusPins numSimpleIOPins : outParam ℕ) (ρ σ : outParam Type) [Registers ρ σ]
 -- deriving Inhabited
 
-variable [Registers ρ σ] [ToString σ]
+variable [Registers ρ σ]
 
 namespace PartType
 
@@ -314,7 +313,7 @@ instance [Inhabited σ] : Inhabited (State m τ) where
 @[inline] def setWaitingToWrite (s : State m τ) (i : XBus) (val : Bool) : State m τ :=
   { s with waitingToWrite := Vector.set s.waitingToWrite i val }
 
-public def toString (s : State m τ) (inputs : List Integer := []) (indent : Nat := 0) : String :=
+public def toString (s : State m τ) [ToString σ] (inputs : List Integer := []) (indent : Nat := 0) : String :=
   let ws := String.whitespace indent
   ws ++ ("\n" ++ ws).intercalate [
     s!"m = {m}",
