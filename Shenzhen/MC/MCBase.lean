@@ -325,26 +325,14 @@ public def toString (s : State) [ToString s.τ.InternalRegState] (inputs : List 
 end State
 end Chip
 
-namespace Board
-
-@[expose]
-public abbrev SimpleIOConns (chips : Vector Chip n) :=
-  Conns ((i : Fin n) × chips[i].τ.SimpleIO)
-
-@[expose]
-public abbrev XBusConns (chips : Vector Chip n) :=
-  Conns ((i : Fin n) × chips[i].τ.XBus)
-
 /-- The data in the simulation that doesn't change during execution. -/
-public structure _root_.MC.Board (n : ℕ) where
+public structure Board (n : ℕ) where
   chips : Vector Chip n
-  simpleIOConns : SimpleIOConns chips
-  xBusConns : XBusConns chips
+  simpleIOConns : Conns n (chips[·].τ.numSimpleIOPins)
+  xBusConns : Conns n (chips[·].τ.numXBusPins)
 
 public def initialStates (b : Board n) : Vector Chip.State n :=
   b.chips.map fun { m, τ, .. } => .blank τ m
-
-end Board
 
 namespace Chip
 
@@ -372,7 +360,7 @@ namespace Chip
     its `alreadyTicked` bit is not set, and its `waiting-to-write` flag is set.
     Also return the `(outPin, d, next)` arguments to the `.xBusWrite` constructor. -/
 def findWrite? (states : Vector State n) (alreadyTicked : Vector Bool n)
-    (xBusConns : Conns ((i : Fin n) × states[i].τ.XBus)) (whichPin : (i : Fin n) × states[i].τ.XBus)
+    (xBusConns : Conns n (states[·].τ.numXBusPins)) (whichPin : Conns.Node n (states[·].τ.numXBusPins))
     : Option ((j : Fin n) × states[j].τ.XBus × Integer × (Unit → IOEffects states[j].τ.XBus states[j].τ.SimpleIO (states[j].τ.InstructionState states[j].m))) :=
   Fin.findSome? (n := n) fun j =>
     if !alreadyTicked[j] then
@@ -386,7 +374,7 @@ def findWrite? (states : Vector State n) (alreadyTicked : Vector Bool n)
     else none
 
 def resolveXBusReadOrPeek (states : Vector State n) (alreadyTicked : Vector Bool n)
-    (xBusConns : Conns ((i : Fin n) × states[i].τ.XBus))
+    (xBusConns : Conns n (states[·].τ.numXBusPins))
     (i : Fin n) : Vector State n × Vector Bool n :=
   if alreadyTicked[i] then (states, alreadyTicked)
   else
@@ -434,7 +422,7 @@ theorem sameInvariants_resolveXBusReadAndPeek {states : Vector State n} {already
 
   If there are multiple writers enabled as such, the order is unspecified (but really left-to-right in `states`). -/
 def resolveXBusReadsAndPeeks {n : ℕ} (states : Vector State n)
-    (xBusConns : Conns ((i : Fin n) × states[i].τ.XBus))
+    (xBusConns : Conns n (states[·].τ.numXBusPins))
     (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
   let (⟨states', _⟩, alreadyTicked') : Subtype (sameInvariants states) × _ := (List.finRange n).foldl
     (init := (⟨states, sameInvariants_refl⟩, alreadyTicked))
