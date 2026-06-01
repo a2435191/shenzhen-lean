@@ -55,7 +55,7 @@ public structure PartType where
   InternalRegState : Type
   /-- The internal state of a chip that has'nt executed anything -/
   blank : InternalRegState
-  inst : Registers InternalReg InternalRegState
+  [inst : Registers InternalReg InternalRegState]
 
 namespace PartType
 
