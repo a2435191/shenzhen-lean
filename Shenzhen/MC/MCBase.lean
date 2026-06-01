@@ -581,8 +581,7 @@ end
   The effect of running this function `n` times for large `n` should be to get all chips
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
-public def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
-    : Vector State n :=
+public def advanceTick {n : ℕ} (board : Board n) (states : Vector State n) : Vector State n :=
 
   -- First, any pure states (meaning about to execute an instruction) get wrapped in `IOEffects`
   -- by `instructionEffects`. This is so that we can just pass in totally blank states, and I
@@ -600,8 +599,8 @@ public def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
           -- TODO: also assert that the right flags are enabled for this instr.
           -- TODO: also assert other things about the current state
 
-          let fx' := instructionEffects (board.chips[i].instrs[ip]) board.chips[i].flags (cast (by grind) is)
-          { s with instructionState := cast (by grind) fx' }
+          let fx' := instructionEffects (board.chips[i].instrs[ip]) board.chips[i].flags (cast sorry is)
+          { s with instructionState := cast sorry fx' }
     | _ => s
 
   -- See `stepUntilDone`
@@ -616,8 +615,8 @@ public def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
   states
 
 where
-  originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n :=
-    states.map State.simpleIOOut
+  originalSimpleIOOuts : Vector (Array SimpleIOData) n :=
+    states.map (·.simpleIOOut.toArray)
 
   /-- Keep applying `step` until no further progress can be made, in which case
     we're ready to end the tick. -/
@@ -649,10 +648,10 @@ where
 
     -- TODO double check that using the simpleIOOuts from the start of this tick is correct
     -- TODO something about sub-tick ordering? What about with simple I/O writes clearing their pin's buffer?
-    let states := resolveSimpleIOReads board.simpleIOConns states originalSimpleIOOuts alreadyTicked
+    let states := resolveSimpleIOReads states (cast sorry board.simpleIOConns) originalSimpleIOOuts alreadyTicked
     let states := resolveSimpleIOWrites states alreadyTicked
 
-    let (states, alreadyTicked) := resolveXBusReadsAndPeeks board.xBusConns states alreadyTicked
+    let (states, alreadyTicked) := resolveXBusReadsAndPeeks states (cast sorry board.xBusConns) alreadyTicked
     let states := setXBusWriteFlags states
 
     (states, alreadyTicked)
