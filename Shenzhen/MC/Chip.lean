@@ -83,11 +83,11 @@ end PartType
 open PartType
 
 @[expose]
-abbrev Instruction (numInstr : Nat) [inst : PartType numXBusPins numSimpleIOPins ρ σ] :=
+abbrev Instruction (numInstr : Nat) [PartType numXBusPins numSimpleIOPins ρ σ] :=
   _root_.Instruction (Fin numInstr) ρ XBus SimpleIO
 
 @[expose]
-abbrev RegOrInt [inst : PartType numXBusPins numSimpleIOPins ρ σ] :=
+abbrev RegOrInt [PartType numXBusPins numSimpleIOPins ρ σ] :=
   _root_.Instruction.RegOrInt ρ XBus SimpleIO
 
 namespace InstructionState
