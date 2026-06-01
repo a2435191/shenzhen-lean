@@ -439,12 +439,12 @@ def resolveXBusReadsAndPeeks {n : ℕ} (states : Vector State n)
 /-- Each chip writing XBus sets its own `waiting-to-write` flag. -/
 def setXBusWriteFlags {n : ℕ} (states : Vector State n) : Vector State n :=
   states.map fun
-    | s@{ instructionState := .xBusWrite pin .., .. } => s.setWaitingToWrite pin true
+    | s@{ instructionState := .xBusWrite pin .., .. } => s.setWaitingToWrite (cast (by simp [*]) pin) true
     | other => other
 
 /-- Mark everywhere we are `.sleep`ing or `.pure` as having ticked -/
 def setMaskForPureAndSleep {n} (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector Bool n :=
-  (states.zip alreadyTicked).map fun (⟨_, is, _, _⟩, b) =>
+  (states.zip alreadyTicked).map fun (⟨_, _, is, _, _⟩, b) =>
     match is with
     | .sleep .. | .pure _ => true
     | _ => b
@@ -456,30 +456,34 @@ def resolveSimpleIOWrites {n : ℕ}
   (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n :=
   (states.zip alreadyTicked).map fun
     | (s, true) => s
-    | (s@⟨m, instructionState, simpleIOOut, waitingToWrite⟩, false) =>
+    | (s@⟨m, τ, instructionState, simpleIOOut, waitingToWrite⟩, false) =>
       match instructionState with
-      | .simpleIOWrite pin d next => ⟨m, next (), simpleIOOut.set pin d, waitingToWrite⟩
+      | .simpleIOWrite pin d next => ⟨m, τ, next (), simpleIOOut.set pin d, waitingToWrite⟩
       | _ => s
+
 
 /-- Resolve all outermost `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `simpleIOOut`
   to zero wherever a read occurs. Note that this uses `originalSimpleIOOuts`, i.e. those
   from the start of the tick before any simple I/O reads or writes occurred. This function
   also ignores wherever `alreadyTicked[i] = true`. -/
 def resolveSimpleIOReads {n : ℕ}
-    (simpleIOConns : Conns n SimpleIO) (states : Vector State n)
-    (originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n)
+    (states : Vector State n)
+    (simpleIOConns : Conns n (states[·].τ.numSimpleIOPins))
+    (originalSimpleIOOuts : Vector (Array SimpleIOData) n)
     (alreadyTicked : Vector Bool n) : Vector State n :=
-  states.mapFinIdx' fun i s@⟨m, instructionState, simpleIOOut, waitingToWrite⟩ =>
-    if alreadyTicked[i] then s
-    else
-      match instructionState with
-      | .simpleIORead pin next =>
-        let max := simpleIOConns.neighbors i pin
-          |>.map (fun (i', pin') => originalSimpleIOOuts[i'][pin'])
-          |>.max?
-          |>.getD 0
-        ⟨m, next max, simpleIOOut.set pin 0, waitingToWrite⟩
-      | _ => s
+  Vector.ofFn fun i =>
+    match hs : states[i] with
+    | s@⟨m, τ, instructionState, simpleIOOut, waitingToWrite⟩ =>
+      if alreadyTicked[i] then s
+      else
+        match h' : instructionState with
+        | .simpleIORead pin next =>
+          let max : SimpleIOData := simpleIOConns.neighbors ⟨i, cast (by simp [hs]) pin⟩
+            |>.map (fun (v : Conns.Node _ _) => originalSimpleIOOuts[v.i][v.j]!) -- TODO prove `[v.j]` is ok (will need more hypotheses)
+            |>.max?
+            |>.getD 0
+          ⟨m, τ, next max, simpleIOOut.set pin 0, waitingToWrite⟩
+        | _ => s
 
 section
 
