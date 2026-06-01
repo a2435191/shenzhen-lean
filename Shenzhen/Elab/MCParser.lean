@@ -3,7 +3,6 @@ module
 public import Lean.Elab.Term.TermElabM
 
 import Shenzhen.Instruction
-import Shenzhen.MC4000
 import Shenzhen.Line
 public meta import Shenzhen.Compile
 public meta import Shenzhen.MCParser

@@ -123,5 +123,8 @@ public def compile : Except (CompileException lines) (Compiled ρ ξ ι) :=
 
 end Compile
 
-public def MC4000.ofCompiled : Compile.Compiled InternalReg XBus SimpleIO → MC4000
-| { m, flags, instrs } => { m, flags, instrs }
+open MC.Chip.MC4000 in
+@[expose]
+public def MC4000.ofCompiled : Compile.Compiled InternalReg XBus SimpleIO → MC.Chip
+| { m, flags, instrs } => { m, τ := MC.Chip.MC4000, flags, instrs }
+-- TODO generalize to all MC.Chip instances

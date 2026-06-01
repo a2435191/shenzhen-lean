@@ -14,24 +14,69 @@ import Shenzhen.Notation
 
 import Batteries.Data.Fin.Basic
 
-namespace MC4000
-public section
+/-! # The interface for the MC4000, MC4000X, and MC6000 microcontrollers -/
+-- TODO at some point add MC4010 math coprocessor. Not sure if that should use this interface though
 
-@[reducible, expose] def numXBusPins := 2
-@[reducible, expose] def XBus := Fin numXBusPins
-@[reducible, expose] def numSimpleIOPins := 2
-@[reducible, expose] def SimpleIO := Fin numSimpleIOPins
+public section -- TODO tighten
+namespace MC
 
-inductive InternalReg | acc -- Only one register
-deriving Repr
+/-- `Registers ρ σ` is the interface for an implentation of internal registers for a chip type,
+  where a value of `ρ` indicates a specific register, and `σ` holds the state of the registers.  -/
+class Registers (ρ : outParam Type) (σ : Type) where
+  /-- Which register is `acc`? -/
+  acc : ρ
+  read : ρ → σ → Integer
+  write : ρ → Integer → σ → σ
+  modify : ρ → (Integer → Integer) → σ → σ := fun which f s =>
+    let d := read which s
+    write which (f d) s
+deriving instance Inhabited for Registers -- TODO create manual instance or get this warning to go away
+attribute [reducible] instInhabitedRegisters.default
 
 /-- Represents the state during some instruction. While executing an instruction (possibly across multiple, in the case that we block on XBus),
-  all fields stay the same -/
-structure InstructionState (numInstr : Nat) where
-  acc : Integer
+  all fields stay the same.
+
+  `σ` is the type of internal registers (`acc` and `dat` or just `acc` alone). -/
+structure InstructionState (σ : Type) (numInstr : Nat) where
+  registers : σ
   cond : ConditionalState numInstr
   ip : IP numInstr
-deriving Repr
+deriving Repr, Inhabited
+
+-- TDOO maybe make this a typeclass
+/-- The type of some chip, so just the metadata associated with every kind of MCxxxx product.
+  Doesn't include per-chip information like the instructions or state. -/
+public structure PartType where
+  numXBusPins : ℕ
+  numSimpleIOPins : ℕ
+  /-- The type of internal registers, i.e. which one we're talking about -/
+  InternalReg : Type
+  /-- The type of internal register state, i.e. all registers -/
+  InternalRegState : Type
+  /-- The internal state of a chip that has'nt executed anything -/
+  blank : InternalRegState
+  [inst : Registers InternalReg InternalRegState] -- TODO: rename these
+  [inst₂ : ToString InternalRegState] -- TODO: should this even go here
+
+namespace PartType
+
+variable (τ : PartType)
+
+@[reducible, expose] def XBus := Fin τ.numXBusPins
+@[reducible, expose] def SimpleIO := Fin τ.numSimpleIOPins
+@[reducible, expose] def InstructionState (m : ℕ) := MC.InstructionState τ.InternalRegState m
+
+instance : Inhabited PartType where
+  default := {
+    numXBusPins := 0
+    numSimpleIOPins := 0
+    InternalReg := Unit
+    InternalRegState := Unit
+    blank := ()
+    inst := Inhabited.default
+  }
+
+end PartType
 
 /-! ## A note about simple I/O
   "At any given time, a simple I/O pin is either in input mode or output mode. Writing a value
@@ -41,94 +86,90 @@ deriving Repr
 
   This and XBus writes (see below) are the only effects that can change the state of a chip mid-instruction. -/
 
+@[expose]
+abbrev Instruction (τ : PartType) (numInstr : Nat) :=
+  _root_.Instruction (Fin numInstr) τ.InternalReg τ.XBus τ.SimpleIO
 
 @[expose]
-abbrev Instruction (numInstr : Nat) :=
-  _root_.Instruction (Fin numInstr) InternalReg XBus SimpleIO
-
-@[expose]
-abbrev RegOrInt :=
-  _root_.Instruction.RegOrInt InternalReg XBus SimpleIO
-
-end
+abbrev RegOrInt (τ : PartType) :=
+  _root_.Instruction.RegOrInt τ.InternalReg τ.XBus τ.SimpleIO
 
 namespace InstructionState
-public section
 
-instance {m} : ToString (InstructionState m) where
+instance [ToString σ] {m} : ToString (InstructionState σ m) where
   toString
-  | { acc, cond := c, ip } =>
+  | { registers, cond := c, ip } =>
     let condStr := match c.boolFlags with
       | (true, false) => "+"
       | (false, true) => "-"
       | (false, false) => "none"
       | (true, true) => "?both true?"
-    s!"[acc = {acc}; ip = {repr ip}; \
+    s!"[registers = {registers}; ip = {repr ip}; \
     cond = {condStr}; \
     hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst})"
 
-def blank (m) : InstructionState m :=
-  { acc := 0,
-    cond := ⟨Vector.replicate m false, false, false⟩,
-    ip := .null }
+instance {τ : PartType} [ToString τ.InternalRegState] : ToString (τ.InstructionState m) :=
+  inferInstance
 
-instance : Inhabited (InstructionState m) :=
-  ⟨blank m⟩
+-- TODO
+-- instance : Inhabited (InstructionState m) :=
+--   ⟨blank m⟩
 
-end
+-- TODO move this stuff to its own state file, with InstructionState stuff above
 
 @[inline, specialize]
-def modifyAcc (f : Integer → Integer) : InstructionState m → InstructionState m :=
-  fun state => { state with acc := f state.acc }
+def modifyAcc [inst : Registers ρ σ] (f : Integer → Integer) : InstructionState σ m → InstructionState σ m :=
+  fun state => { state with registers := Registers.modify inst.acc f state.registers }
 
 /-- Set `acc` to `f acc other`. -/
 @[inline, specialize]
-def modifyAcc' (f : Integer → Integer → Integer) (other : Integer) : InstructionState m → InstructionState m :=
+def modifyAcc' [Registers ρ σ] (f : Integer → Integer → Integer) (other : Integer) : InstructionState σ m → InstructionState σ m :=
   modifyAcc (f · other)
 
 /-- Enable `pos` and disable `neg` instructions if `b` holds.
   Otherwise, disable `pos` and enable `neg` instructions. -/
-@[inline] def setCondIff (b : Bool) : InstructionState m → InstructionState m :=
+@[inline] def setCondIff (b : Bool) : InstructionState σ m → InstructionState σ m :=
   fun state => { state with cond := ⟨state.cond.hasRun, b, !b⟩ }
 
-@[inline] def setHasRun (which : Fin m) (b : Bool) : InstructionState m → InstructionState m :=
+@[inline] def setHasRun (which : Fin m) (b : Bool) : InstructionState σ m → InstructionState σ m :=
   fun state => { state with cond := {
     state.cond with hasRun := state.cond.hasRun.set which b }
   }
 
-@[inline] def setIP (new : IP m) : InstructionState m → InstructionState m :=
+@[inline] def setIP (new : IP m) : InstructionState σ m → InstructionState σ m :=
   ({ · with ip := new })
 
-@[inline] def modifyIP (f : IP m → IP m) : InstructionState m → InstructionState m :=
+@[inline] def modifyIP (f : IP m → IP m) : InstructionState σ m → InstructionState σ m :=
   fun state => { state with ip := f state.ip }
 
 end InstructionState
-end MC4000
 
-open MC4000 in
-public structure MC4000 where
+-- TODO: consider parametrizing `Chip` on `τ`, so `MC4000 := Chip MC4000.PartType` or something
+-- TODO: consider also parametrizing it on `m`
+open PartType in
+public structure Chip where
   /-- The number of instructions on the chip. -/
   {m : outParam Nat}
+  τ : PartType
   flags : Vector ConditionalFlag m
-  instrs : Vector (Instruction m) m
-deriving Repr
+  instrs : Vector (Instruction τ m) m
 
-namespace MC4000
-public section mk'
-variable (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat InternalReg XBus SimpleIO))
+namespace Chip
+variable {τ : PartType} (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat τ.InternalReg τ.XBus τ.SimpleIO))
 
 @[expose] abbrev mk'.jmpLabelsInBounds : Bool :=
   instrs.all fun
     | .jmp dst => dst < instrs.size
     | _ => true
 
-/-- A more convenient constructor for `MC4000` with default `by decide` proofs. -/
-def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat InternalReg XBus SimpleIO))
-    (h : mk'.jmpLabelsInBounds flagsAndInstrs.unzip.snd := by decide) : MC4000 :=
+/-- A more convenient constructor for `Chip` with default `by decide` proofs. -/
+@[expose]
+def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat τ.InternalReg τ.XBus τ.SimpleIO))
+    (h : mk'.jmpLabelsInBounds flagsAndInstrs.unzip.snd := by decide) : Chip :=
   let m := flagsAndInstrs.size
   match h' : flagsAndInstrs.unzip with
   | (flags, instrs) =>
-    let instrs' : Array (Instruction m) :=
+    let instrs' : Array (Instruction τ m) :=
       instrs.attach.map fun ⟨i, hi⟩ =>
         match i with
         | .jmp dst => .jmp <| Fin.mk dst <| by
@@ -142,14 +183,12 @@ def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat Inter
         | .dst x y => .dst x y
         | .teq x y => .teq x y | .tgt x y => .tgt x y | .tlt x y => .tlt x y | .tcp x y => .tcp x y
     have : flags = flagsAndInstrs.unzip.1 ∧ instrs = flagsAndInstrs.unzip.2 := ⟨h' ▸ rfl, h' ▸ rfl⟩
-    @MC4000.mk m ⟨flags, by simp [this]; rfl⟩ ⟨instrs', by simp [instrs', this]; rfl⟩
-
-end mk'
+    @Chip.mk m τ ⟨flags, by simp [this]; rfl⟩ ⟨instrs', by simp [instrs', this]; rfl⟩
 
 /-- Advance the instruction pointer to the next enabled location (possibly wrapping around or,
   rarely, getting stuck if there are no enabled locations). Does not handle `jmp` instructions. -/
 def advanceIP {m} (flags : Vector ConditionalFlag m)
-    : InstructionState m → InstructionState m := fun is =>
+    : InstructionState σ m → InstructionState σ m := fun is =>
     match is.ip with
     | .none => is -- TODO I think this is right for the case where there are no instructions
     | .ofFin ip =>
@@ -158,28 +197,28 @@ def advanceIP {m} (flags : Vector ConditionalFlag m)
       | some ip' =>
         is.setIP ip' -- just set the new IP
 
-/-- `IOEffects m α` wraps `α` and mutable `InstructionState m` state inside `IOEffects`.
+/-- `IOEffects τ m α` wraps `α` and mutable `InstructionState m` state inside `IOEffects`.
   Equal to `InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m)`. -/
 @[reducible]
-private def Effects (m : ℕ) : Type → Type :=
-  StateT (InstructionState m) (IOEffects XBus SimpleIO)
+private def Effects (τ : PartType) (m : ℕ) : Type → Type :=
+  StateT (τ.InstructionState m) (IOEffects τ.XBus τ.SimpleIO)
 
 /-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks).
   The effects include advancing the instruction pointer. -/
-def instructionEffects {m} (instr : Instruction m) (flags : Vector ConditionalFlag m)
-    : InstructionState m → IOEffects XBus SimpleIO (InstructionState m) :=
+def instructionEffects {m} (instr : Instruction τ m) (flags : Vector ConditionalFlag m)
+    : τ.InstructionState m → IOEffects τ.XBus τ.SimpleIO (τ.InstructionState m) :=
   let res := impl *> setNextIP
   fun s => res s <&> Prod.snd
 where
   /-- Here we tell ensure that `.pure` states (whether buried under other `IOEffects` or not)
     advance the instruction pointer. -/
-  setNextIP : Effects m Unit := do
+  setNextIP : Effects τ m Unit := do
     match instr with
     | .jmp ip' => modify (InstructionState.setIP ip')
     | _ => modify (advanceIP flags)
 
   /-- Handle everything except for updating the IP -/
-  impl : Effects m Unit := do
+  impl : Effects τ m Unit := do
     -- TODO: somewhere (maybe here) set the conditional flag corresponding to "@" after executing this instr
     match instr with
     -- Basic
@@ -188,7 +227,8 @@ where
       let d ← readRegOrInt src
       match dst with
       | .null => return
-      | .internal .acc => modify ({· with acc := d})
+        -- TODO: add helper to `Effects` for this stuff
+      | .internal reg => modify fun s => { s with registers := τ.inst.write reg d s.registers }
       | .simpleIO i =>
         let d := d.toSimpleIOData
         ret (.simpleIOWrite i d pure)
@@ -204,13 +244,13 @@ where
     | .add ri => doArith ri (· + ·)
     | .sub ri => doArith ri (· - ·)
     | .mul ri => doArith ri (· * ·)
-    | .not => modify (.modifyAcc Integer.not)
+    | .not => modify (.modifyAcc (inst := τ.inst) Integer.not) -- TODO clunky
     | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
     | .dst ri₁ ri₂ =>
       -- set the `ri₁`th digit of `acc` to `ri₂`
       let digit ← readRegOrInt ri₁
       let num ← readRegOrInt ri₂
-      modify (.modifyAcc (Integer.setDigit · digit num))
+      modify (.modifyAcc (inst := τ.inst) (Integer.setDigit · digit num))
     -- Test (comparison)
     | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
     | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
@@ -220,29 +260,30 @@ where
       let d₂ ← readRegOrInt ri₂
       modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
 
-  /-- Read an integer from `ri` (inside `Effects m`) -/
-  readRegOrInt (ri : RegOrInt) : Effects m Integer := do
+  /-- Read an integer from `ri` (inside `Effects τ m`) -/
+  readRegOrInt (ri : RegOrInt τ) : Effects τ m Integer := do
     match ri with
     | .int n => return n
     | .null => return 0
-    | .internal .acc => return (←get).acc
+    | .internal reg => return Registers.read (self := τ.inst) reg (←get).registers -- TODO clunky
     | .xBus x => do ret (.xBusRead x pure)
     | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
 
   /-- Set the `acc` register to `f acc (←readRegOrInt ri)`. -/
-  doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : Effects m Unit := do
+  doArith (ri : RegOrInt τ) (f : Integer → Integer → Integer) : Effects τ m Unit := do
     let d ← readRegOrInt ri
+    have := τ.inst -- TODO clunky
     modify (.modifyAcc' f d)
 
   /-- Run the comparison function `f` with `ri₁` and `ri₂` as inputs, then
     update the conditional flags accordingly. -/
-  doCmp (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → Bool) : Effects m Unit := do
+  doCmp (ri₁ ri₂ : RegOrInt τ) (f : Integer → Integer → Bool) : Effects τ m Unit := do
     let d₁ ← readRegOrInt ri₁
     let d₂ ← readRegOrInt ri₂
     modify (.setCondIff (f d₁ d₂))
 
   /-- Return an `IOEffects` within the greater monad -/
-  ret {m α} (bfx : IOEffects XBus SimpleIO α) : Effects m α :=
+  ret {m α} (bfx : IOEffects τ.XBus τ.SimpleIO α) : Effects τ m α :=
     fun is => bfx <&> (·, is)
 
 /-- The state of an executing chip -/
@@ -251,8 +292,11 @@ public structure State where
   -- `Vector`s below anyway
   m : ℕ
 
+  -- Similarly to `m`, this is not a type parameter
+  τ : PartType
+
   -- Only changes at instruction boundaries
-  instructionState : IOEffects XBus SimpleIO (InstructionState m)
+  instructionState : IOEffects τ.XBus τ.SimpleIO (τ.InstructionState m)
 
   -- now, the state that can be mutated between ticks inside an instruction
 
@@ -263,26 +307,37 @@ public structure State where
     This may change from one CPU cycle to another within an instruction.
     For example, this occurs in the instruction `mov p0 x0` if the chip was writing something
     out of `p0` before this instruction. -/
-  simpleIOOut : Vector SimpleIOData numSimpleIOPins
+  simpleIOOut : Vector SimpleIOData τ.numSimpleIOPins
   -- TODO do I also need to keep track of a boolean flag for each simple I/O pin here?
 
   /-- See the documentation comments in `MC4000.lean`. This represents whether each
     XBus pin is ready to write. This may change between CPU cycles inside an instruction because
     XBus writes set it and XBus reads clear it. -/
-  waitingToWrite : Vector Bool numXBusPins
-deriving Inhabited
+  waitingToWrite : Vector Bool τ.numXBusPins
+
+instance : Inhabited State where
+  default := {
+    m := 1,
+    τ := default,
+    instructionState := pure (show InstructionState Unit 1 from default)
+    simpleIOOut := #v[],
+    waitingToWrite := #v[]
+  }
 
 namespace State
 
-public def blank (m : ℕ) : State :=
-  { m,
-    instructionState := pure (.blank m),
-    simpleIOOut := #v[0, 0], waitingToWrite := #v[false, false] }
+public def blank (τ : PartType) (m : ℕ) : State :=
+  { m, τ,
+    instructionState := pure
+      { registers := τ.blank,
+        cond := ⟨Vector.replicate _ false, false, false⟩,
+        ip := IP.null },
+    simpleIOOut := Vector.replicate _ 0, waitingToWrite := Vector.replicate _ false }
 
-@[inline] def setWaitingToWrite (i : XBus) (val : Bool) : State → State :=
-  fun state => { state with waitingToWrite := Vector.set state.waitingToWrite i val }
+@[inline] def setWaitingToWrite (s : State) (i : s.τ.XBus) (val : Bool) : State :=
+  { s with waitingToWrite := Vector.set s.waitingToWrite i val }
 
-public def toString (s : State) (inputs : List Integer := []) (indent : Nat := 0) : String :=
+public def toString (s : State) [ToString s.τ.InternalRegState] (inputs : List Integer := []) (indent : Nat := 0) : String :=
   let ws := String.whitespace indent
   ws ++ ("\n" ++ ws).intercalate [
     s!"m = {s.m}",
@@ -292,19 +347,18 @@ public def toString (s : State) (inputs : List Integer := []) (indent : Nat := 0
   ]
 
 end State
-end MC4000
+end Chip
 
--- for now, just MC4000s
 /-- The data in the simulation that doesn't change during execution. -/
 public structure Board (n : ℕ) where
-  chips : Vector MC4000 n
-  simpleIOConns : Conns n MC4000.SimpleIO
-  xBusConns : Conns n MC4000.XBus
+  chips : Vector Chip n
+  simpleIOConns : Conns n (chips[·].τ.numSimpleIOPins)
+  xBusConns : Conns n (chips[·].τ.numXBusPins)
 
-public def Board.initialStates (b : Board n) : Vector MC4000.State n :=
-  b.chips.map fun { m, .. } => .blank m
+public def Board.initialStates (b : Board n) : Vector Chip.State n :=
+  b.chips.map fun { m, τ, .. } => .blank τ m
 
-namespace MC4000
+namespace Chip
 
 /-! ## XBus semantics
   I believe that when a chip executes an XBus read or write, the XBus pin sets a flag to
@@ -326,60 +380,95 @@ namespace MC4000
                  < `tick end`.
 -/
 
+/-- Compute the first index of an XBus write in `states` s.t. it is on a pin connected to `whichPin`,
+    its `alreadyTicked` bit is not set, and its `waiting-to-write` flag is set.
+    Also return the `(outPin, d, next)` arguments to the `.xBusWrite` constructor. -/
+def findWrite? (states : Vector State n) (alreadyTicked : Vector Bool n)
+    (xBusConns : Conns n (states[·].τ.numXBusPins)) (whichPin : Conns.Node n (states[·].τ.numXBusPins))
+    : Option ((j : Fin n) × states[j].τ.XBus × Integer × (Unit → IOEffects states[j].τ.XBus states[j].τ.SimpleIO (states[j].τ.InstructionState states[j].m))) :=
+  Fin.findSome? (n := n) fun j =>
+    if !alreadyTicked[j] then
+      match h : states[j] with
+      | ⟨m, τ, .xBusWrite pin d next, _, waitingToWrite⟩ =>
+        let pin' : states[j].τ.XBus := cast (by simp [h]) pin
+        if waitingToWrite[pin] && xBusConns.connected whichPin ⟨j, pin'⟩ then
+          some ⟨j, pin', d, cast (by simp [h]) next⟩
+        else none
+      | _ => none
+    else none
+
+def resolveXBusReadOrPeek (states : Vector State n) (alreadyTicked : Vector Bool n)
+    (xBusConns : Conns n (states[·].τ.numXBusPins))
+    (i : Fin n) : Vector State n × Vector Bool n :=
+  if alreadyTicked[i] then (states, alreadyTicked)
+  else
+    match states[i].instructionState with
+    | .xBusRead pin next =>
+      match findWrite? states alreadyTicked xBusConns ⟨i, pin⟩ with
+      | .some ⟨j, pin', d, next'⟩ =>
+        let states' := states
+          |>.set i { states[i] with instructionState := next d }
+          -- TODO: somewhere else in some comment I say that this is tolerant of multiple writes, idt that's true since we clear `waitingToWrite[pin]` here? Think about this
+          |>.set j { states[j] with instructionState := next' (), waitingToWrite := states[j].waitingToWrite.set pin' false }
+        (states', alreadyTicked) -- Don't update mask— we might have more "free" operations (second bullet point below) to do
+      | none => (states, alreadyTicked.set i true) -- update mask since this read blocks, meaning we're done for the tick
+    | .xBusPoll pin next =>
+      match findWrite? states alreadyTicked xBusConns ⟨i, pin⟩ with
+      | .some ⟨j, _, _, next'⟩ =>
+        let states' := states
+          |>.set i { states[i] with instructionState := next () }
+          -- don't resolve the write since this is just a poll
+        (states', alreadyTicked)
+      | none => (states, alreadyTicked.set i true) -- update mask since this poll blocks
+    | _ => (states, alreadyTicked)
+
+def sameInvariants (states states': Vector State n) : Prop :=
+  ∀ i : Fin n, states[i].m = states'[i].m ∧ states[i].τ = states'[i].τ
+
+theorem sameInvariants_refl {states : Vector State n} : sameInvariants states states :=
+  fun _ => ⟨rfl, rfl⟩
+
+theorem sameInvariants_resolveXBusReadAndPeek {states : Vector State n} {alreadyTicked conns i}
+    : sameInvariants states (resolveXBusReadOrPeek states alreadyTicked conns i).1 := by
+  intro j
+  unfold resolveXBusReadOrPeek
+  refine ⟨?_, ?_⟩
+  all_goals
+    repeat' split <;> try rfl
+    · simp only [Fin.getElem_fin, Vector.getElem_set]
+      split <;> (try split) <;> simp [*]
+    · simp only [Fin.getElem_fin, Vector.getElem_set]
+      split <;> simp [*]
+
 /-- Try to resolve the outermost XBus reads and peeks with writes for which the
   waiting-to-write flag has been set and `alreadyTicked` is `false`.
   `alreadyTicked[i] = true` indicates that `states[i]` has already been ticked and should be ignored.
 
   If there are multiple writers enabled as such, the order is unspecified (but really left-to-right in `states`). -/
-def resolveXBusReadsAndPeeks {n : ℕ} (xBusConns : Conns n XBus)
-    (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
-  (List.finRange n).foldl (init := (states, alreadyTicked)) fun (states, alreadyTicked) i =>
-    if alreadyTicked[i] then (states, alreadyTicked)
-    else
-      match states[i].instructionState with
-      | .xBusRead pin next =>
-        match findWrite? (i, pin) states alreadyTicked with
-        | .some ⟨j, pin', d, next'⟩ =>
-          let states' := states
-            |>.set i { states[i] with instructionState := next d }
-            -- TODO: somewhere else in some comment I say that this is tolerant of multiple writes, idt that's true since we clear `waitingToWrite[pin]` here? Think about this
-            |>.set j { states[j] with instructionState := next' (), waitingToWrite := states[j].waitingToWrite.set pin' false }
-          (states', alreadyTicked) -- Don't update mask— we might have more "free" operations (second bullet point below) to do
-        | none => (states, alreadyTicked.set i true) -- update mask since this read blocks, meaning we're done for the tick
-      | .xBusPoll pin next =>
-        match findWrite? (i, pin) states alreadyTicked with
-        | .some ⟨j, _, _, next'⟩ =>
-          let states' := states
-            |>.set i { states[i] with instructionState := next () }
-            -- don't resolve the write since this is just a poll
-          (states', alreadyTicked)
-        | none => (states, alreadyTicked.set i true) -- update mask since this poll blocks
-      | _ => (states, alreadyTicked)
-where
-  /-- Compute the first index of an XBus write in `states` s.t. it is on a pin connected to `whichPin`,
-    its `alreadyTicked` bit is not set, and its `waiting-to-write` flag is set.
-    Also return the `(outPin, d, next)` arguments to the `.xBusWrite` constructor. -/
-  findWrite? (whichPin : Fin n × XBus) (states : Vector State n) (alreadyTicked : Vector Bool n)
-      : Option ((j : Fin n) × XBus × Integer × (Unit → IOEffects XBus SimpleIO (InstructionState states[j].m))) :=
-    Fin.findSome? (n := n) fun j =>
-      if !alreadyTicked[j] then
-        match h : states[j] with
-        | ⟨m, .xBusWrite pin d next, _, waitingToWrite⟩ =>
-          if waitingToWrite[pin] && xBusConns.connected whichPin (j, pin) then
-            some ⟨j, pin, d, cast (by simp [h]) next⟩
-          else none
-        | _ => none
-      else none
+def resolveXBusReadsAndPeeks {n : ℕ} (states : Vector State n)
+    (xBusConns : Conns n (states[·].τ.numXBusPins))
+    (alreadyTicked : Vector Bool n) : Vector State n × Vector Bool n :=
+  let (⟨states', _⟩, alreadyTicked') : Subtype (sameInvariants states) × _ := (List.finRange n).foldl
+    (init := (⟨states, sameInvariants_refl⟩, alreadyTicked))
+    fun (⟨states, h⟩, alreadyTicked) i =>
+      letI castConns := cast (by simp_all [sameInvariants]) xBusConns
+      match h' : resolveXBusReadOrPeek states alreadyTicked castConns i with
+      | (states', alreadyTicked') =>
+        have : sameInvariants states states' := by
+          have : _ = states' := congrArg Prod.fst h'
+          rw [←this]; apply sameInvariants_resolveXBusReadAndPeek
+        (⟨states', by grind [sameInvariants]⟩, alreadyTicked')
+  (states', alreadyTicked')
 
 /-- Each chip writing XBus sets its own `waiting-to-write` flag. -/
 def setXBusWriteFlags {n : ℕ} (states : Vector State n) : Vector State n :=
   states.map fun
-    | s@{ instructionState := .xBusWrite pin .., .. } => s.setWaitingToWrite pin true
+    | s@{ instructionState := .xBusWrite pin .., .. } => s.setWaitingToWrite (cast (by simp [*]) pin) true
     | other => other
 
 /-- Mark everywhere we are `.sleep`ing or `.pure` as having ticked -/
 def setMaskForPureAndSleep {n} (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector Bool n :=
-  (states.zip alreadyTicked).map fun (⟨_, is, _, _⟩, b) =>
+  (states.zip alreadyTicked).map fun (⟨_, _, is, _, _⟩, b) =>
     match is with
     | .sleep .. | .pure _ => true
     | _ => b
@@ -391,30 +480,34 @@ def resolveSimpleIOWrites {n : ℕ}
   (states : Vector State n) (alreadyTicked : Vector Bool n) : Vector State n :=
   (states.zip alreadyTicked).map fun
     | (s, true) => s
-    | (s@⟨m, instructionState, simpleIOOut, waitingToWrite⟩, false) =>
+    | (s@⟨m, τ, instructionState, simpleIOOut, waitingToWrite⟩, false) =>
       match instructionState with
-      | .simpleIOWrite pin d next => ⟨m, next (), simpleIOOut.set pin d, waitingToWrite⟩
+      | .simpleIOWrite pin d next => ⟨m, τ, next (), simpleIOOut.set pin d, waitingToWrite⟩
       | _ => s
+
 
 /-- Resolve all outermost `IOEffects.simpleIORead`s by reading the max of connected chips' `simpleIOOut` fields and setting `simpleIOOut`
   to zero wherever a read occurs. Note that this uses `originalSimpleIOOuts`, i.e. those
   from the start of the tick before any simple I/O reads or writes occurred. This function
   also ignores wherever `alreadyTicked[i] = true`. -/
 def resolveSimpleIOReads {n : ℕ}
-    (simpleIOConns : Conns n SimpleIO) (states : Vector State n)
-    (originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n)
+    (states : Vector State n)
+    (simpleIOConns : Conns n (states[·].τ.numSimpleIOPins))
+    (originalSimpleIOOuts : Vector (Array SimpleIOData) n)
     (alreadyTicked : Vector Bool n) : Vector State n :=
-  states.mapFinIdx' fun i s@⟨m, instructionState, simpleIOOut, waitingToWrite⟩ =>
-    if alreadyTicked[i] then s
-    else
-      match instructionState with
-      | .simpleIORead pin next =>
-        let max := simpleIOConns.neighbors i pin
-          |>.map (fun (i', pin') => originalSimpleIOOuts[i'][pin'])
-          |>.max?
-          |>.getD 0
-        ⟨m, next max, simpleIOOut.set pin 0, waitingToWrite⟩
-      | _ => s
+  Vector.ofFn fun i =>
+    match hs : states[i] with
+    | s@⟨m, τ, instructionState, simpleIOOut, waitingToWrite⟩ =>
+      if alreadyTicked[i] then s
+      else
+        match h' : instructionState with
+        | .simpleIORead pin next =>
+          let max : SimpleIOData := simpleIOConns.neighbors ⟨i, cast (by simp [hs]) pin⟩
+            |>.map (fun (v : Conns.Node _ _) => originalSimpleIOOuts[v.i][v.j]!) -- TODO prove `[v.j]` is ok (will need more hypotheses)
+            |>.max?
+            |>.getD 0
+          ⟨m, τ, next max, simpleIOOut.set pin 0, waitingToWrite⟩
+        | _ => s
 
 section
 
@@ -428,17 +521,33 @@ theorem setMaskForPureAndSleep_count_le (s t) : (setMaskForPureAndSleep s t (n :
     _ = (t.map fun b => !b).countP id := by simp [Vector.map_snd_zip]
     _ ≤ _ := by rw [Vector.count_eq_countP]; apply Vector.countP_map_le_countP; simp
 
-theorem resolveXBusReadsAndPeeks_count_le (xc s t) : (resolveXBusReadsAndPeeks xc s t (n := n)).2.count false ≤ t.count false := by
+-- theorem resolveXBusReadOrPeek_count_le : (resolveXBusReadOrPeek)
+
+theorem resolveXBusReadsAndPeeks_count_le (s xc t) : (resolveXBusReadsAndPeeks s xc t (n := n)).2.count false ≤ t.count false := by
   simp only [resolveXBusReadsAndPeeks, Fin.getElem_fin]
-  let motive (x : Vector State n × Vector Bool n) : Prop :=
+  let motive (x : Subtype (sameInvariants s) × Vector Bool n) : Prop :=
     x.2.count false ≤ t.count false
   show motive _
   apply List.foldlRecOn
   · exact Nat.le_of_eq rfl
   · intro (s, t') (h : t'.count false ≤ t.count false) i _
-    unfold motive
-    repeat' split
-    all_goals first | assumption | grind [Vector.count_set]
+    -- TODO clean up
+    unfold motive resolveXBusReadOrPeek
+    split
+    · assumption
+    · simp_all only [List.mem_finRange, Fin.getElem_fin]
+      split
+      · split
+        · assumption
+        · simp only [Vector.count_set, beq_false, Bool.not_eq_eq_eq_not, Bool.not_true,
+            Bool.false_eq_true, ↓reduceIte]
+          omega
+      · simp_all only [Fin.getElem_fin, Bool.not_eq_true]
+        split
+        · assumption
+        · simp only [Vector.count_set, beq_false, Bool.not_eq_eq_eq_not, Bool.not_true,
+          Bool.false_eq_true, ↓reduceIte, Nat.add_zero, Nat.sub_le_iff_le_add]; omega
+      · assumption
 
 end
 
@@ -476,8 +585,7 @@ end
   The effect of running this function `n` times for large `n` should be to get all chips
   stuck waiting for XBus I/O to/from other chips, done with the current instruction and moved on to
   the next (i.e. `.pure`), or sleeping for a time. -/
-public def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
-    : Vector State n :=
+public def advanceTick {n : ℕ} (board : Board n) (states : Vector State n) : Vector State n :=
 
   -- First, any pure states (meaning about to execute an instruction) get wrapped in `IOEffects`
   -- by `instructionEffects`. This is so that we can just pass in totally blank states, and I
@@ -495,8 +603,8 @@ public def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
           -- TODO: also assert that the right flags are enabled for this instr.
           -- TODO: also assert other things about the current state
 
-          let fx' := instructionEffects (board.chips[i].instrs[ip]) board.chips[i].flags (cast (by grind) is)
-          { s with instructionState := cast (by grind) fx' }
+          let fx' := instructionEffects (board.chips[i].instrs[ip]) board.chips[i].flags (cast sorry is)
+          { s with instructionState := cast sorry fx' }
     | _ => s
 
   -- See `stepUntilDone`
@@ -511,8 +619,8 @@ public def advanceTick {n : ℕ} (board : Board n) (states : Vector State n)
   states
 
 where
-  originalSimpleIOOuts : Vector (Vector SimpleIOData numSimpleIOPins) n :=
-    states.map State.simpleIOOut
+  originalSimpleIOOuts : Vector (Array SimpleIOData) n :=
+    states.map (·.simpleIOOut.toArray)
 
   /-- Keep applying `step` until no further progress can be made, in which case
     we're ready to end the tick. -/
@@ -544,10 +652,10 @@ where
 
     -- TODO double check that using the simpleIOOuts from the start of this tick is correct
     -- TODO something about sub-tick ordering? What about with simple I/O writes clearing their pin's buffer?
-    let states := resolveSimpleIOReads board.simpleIOConns states originalSimpleIOOuts alreadyTicked
+    let states := resolveSimpleIOReads states (cast sorry board.simpleIOConns) originalSimpleIOOuts alreadyTicked
     let states := resolveSimpleIOWrites states alreadyTicked
 
-    let (states, alreadyTicked) := resolveXBusReadsAndPeeks board.xBusConns states alreadyTicked
+    let (states, alreadyTicked) := resolveXBusReadsAndPeeks states (cast sorry board.xBusConns) alreadyTicked
     let states := setXBusWriteFlags states
 
     (states, alreadyTicked)
@@ -587,42 +695,3 @@ public def advanceTimeUnit {n : ℕ} (board : Board n)
       -- TODO could terminate early if no states change
       let states' := advanceTick board states
       advanceTimeUnit board states' k
-
-namespace Test
-
-/-- See `example2.png` -/
-def board : Board 2 :=
-  let mc₀ : MC4000 :=
-    .mk #v[.none, .none]
-        #v[.mov (.int 100) (.xBus 1), .slp (.int 1)]
-  let mc₁ : MC4000 :=
-    .mk (Vector.replicate _ .none)
-      #v[
-        -- .nop,
-        .mov (.xBus 0) (.internal .acc),
-        .slp (.int 1)]
-
-  let simpleIOConns : Conns 2 SimpleIO :=
-    .ofEdges []
-
-  let xBusConns : Conns 2 XBus :=
-    .ofEdges [((0, 1), (1, 0))]
-
-  { chips := #v[mc₀, mc₁], simpleIOConns, xBusConns }
-
-def advance :=
-  advanceTick board
-
-def states₀ : Vector State 2 := board.initialStates
-def states₁ := advance states₀
-def states₂ := advance states₁
-def states₃ := advance states₂
-
--- TODO: broken
--- #eval show IO Unit from do
---   let (success, states) := advanceTimeUnit board states₀ 4
---   println! "success: {success}\n"
---   for s in states do
---     println! "{s.toString}\n"
-
-end Test

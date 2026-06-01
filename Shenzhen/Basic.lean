@@ -3,23 +3,31 @@ module
 import Shenzhen.Compile
 import Shenzhen.Instruction
 import Shenzhen.Integer
-import Shenzhen.MC4000
+import Shenzhen.MC.Chip
+import Shenzhen.MC.Chips
 import Shenzhen.Elab.MCParser
 import Shenzhen.SimpleIOData
 import Shenzhen.Util
 import Shenzhen.IOEffects
 import Shenzhen.Notation
 
+open MC
+open Instruction
+open SimpleIOData
+
+def dumb {n : Nat} (i : Nat) (hn : n ≠ 0 := by decide) : Fin n :=
+  @Fin.ofNat n ⟨hn⟩ i
+
 /-- This is the "Touch Activated Light Controller" on page `CSM_TD_100650` of the manual.
 For now (TODO), the input and output are simulated by more `MC4000`s. -/
 @[reducible]
 def lightController : Board 4 :=
   let inputs : Array SimpleIOData := #[0, 0, 100, 0]
-  let touch :=
-    let flagsAndInstrs := inputs.flatMap fun x => #[
+  let touch : Chip :=
+    let flagsAndInstrs := inputs.flatMap fun (x : SimpleIOData) => #[
       (.none, .mov (.int x) (.simpleIO 0)),
       (.none, .slp (.int 1))]
-    MC4000.mk' flagsAndInstrs (by simp [flagsAndInstrs])
+    Chip.mk' (τ := Chip.MC4000) flagsAndInstrs (by simp [flagsAndInstrs])
   let chip₁ := MC4000.ofCompiled mcc(
       teq acc 0
     + teq p0 100
@@ -39,8 +47,8 @@ def lightController : Board 4 :=
     slp 1)
   {
     chips := #v[touch, chip₁, chip₂, light],
-    simpleIOConns := .ofEdges [((0, 0), (1, 0)), ((2, 1), (3, 1))]
-    xBusConns := .ofEdges [((1, 1), (2, 0))]
+    simpleIOConns := .ofEdges [(⟨0, dumb 0⟩, ⟨1, dumb 0⟩), (⟨2, dumb 1⟩, ⟨3, dumb 1⟩)]
+    xBusConns := .ofEdges [(⟨1, dumb 1⟩, ⟨2, dumb 0⟩)]
   }
 
 def rep (n : ℕ) (f : α → α) : α → α :=
@@ -51,13 +59,17 @@ def rep (n : ℕ) (f : α → α) : α → α :=
 def init :=
   lightController.initialStates
 
-#eval show IO Unit from do
-  let states := rep 8 (MC4000.advanceTick lightController) init
+instance {τ : PartType} : ToString τ.InternalRegState :=
+  τ.inst₂
+
+-- TODO turn back to `#eval` after cleaning up `sorry`s
+#eval! show IO Unit from do
+  let states := rep 8 (Chip.advanceTick lightController) init
   for s in states do
     println! s!"{s.toString}\n"
 
-#eval show IO Unit from do
-  let (success, states) := MC4000.advanceTimeUnit lightController init 50
+#eval! show IO Unit from do
+  let (success, states) := Chip.advanceTimeUnit lightController init 50
   if success then println!"Not stuck\n" else println! "Stuck!\n"
   for s in states do
     println! s!"{s.toString}\n"
