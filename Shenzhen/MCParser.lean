@@ -4,7 +4,6 @@ public import Lean.Elab.Term.TermElabM
 public import Shenzhen.Line
 
 import Shenzhen.Instruction
-import Shenzhen.MC4000
 import Shenzhen.Compile
 
 -- TODO: allow any alphanumeric + '_' labels, including reserved words
@@ -63,8 +62,9 @@ def parseInt (stx : Syntax) : ParseM Integer := do
   else
     return .ofInt m (Int.not_lt.mp h₁) (Int.not_lt.mp h₂)
 
-open MC4000
+open MC.Chip.MC4000
 
+-- TODO: generalize to support `dat` as well
 def parseReg (stx : Syntax) : ParseM (Instruction.Reg InternalReg XBus SimpleIO) := do
   match stx with
   | `(reg|null) => return .null

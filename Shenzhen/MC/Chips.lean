@@ -21,6 +21,9 @@ instance : Registers AccReg AccRegState where
   write _ d _ := ⟨d⟩
   modify _ f s := ⟨f s.acc⟩
 
+instance : ToString AccRegState where
+  toString s := s!"acc := {s.acc}"
+
 @[expose] section
 namespace MC4000
 
@@ -29,6 +32,9 @@ abbrev numSimpleIOPins := 2
 abbrev InternalReg := AccReg
 abbrev InternalRegState := AccRegState
 abbrev blank : InternalRegState := ⟨0⟩
+-- TODO this is so dumb that we have to repeat these
+abbrev XBus := Fin 2
+abbrev SimpleIO := Fin 2
 
 end MC4000
 

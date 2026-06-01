@@ -1,7 +1,7 @@
 module
 
 public import Shenzhen.Instruction
-public import Shenzhen.MC4000
+public import Shenzhen.MC.Chips
 
 public section
 
@@ -14,6 +14,8 @@ structure MCParser.Line where
   comment : Option String
 deriving Repr
 
+open MC.Chip.MC4000 in
 @[expose]
 abbrev MC4000.Line :=
   MCParser.Line String InternalReg XBus SimpleIO
+-- TODO generalize this over all `MC.Chip` instances and use a typeclass

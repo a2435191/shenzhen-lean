@@ -55,7 +55,8 @@ public structure PartType where
   InternalRegState : Type
   /-- The internal state of a chip that has'nt executed anything -/
   blank : InternalRegState
-  [inst : Registers InternalReg InternalRegState]
+  [inst : Registers InternalReg InternalRegState] -- TODO: rename these
+  [inst₂ : ToString InternalRegState] -- TODO: should this even go here
 
 namespace PartType
 
@@ -143,6 +144,8 @@ def modifyAcc' [Registers ρ σ] (f : Integer → Integer → Integer) (other : 
 
 end InstructionState
 
+-- TODO: consider parametrizing `Chip` on `τ`, so `MC4000 := Chip MC4000.PartType` or something
+-- TODO: consider also parametrizing it on `m`
 open PartType in
 public structure Chip where
   /-- The number of instructions on the chip. -/
@@ -160,6 +163,7 @@ variable {τ : PartType} (flags : Array ConditionalFlag) (instrs : Array (_root_
     | _ => true
 
 /-- A more convenient constructor for `Chip` with default `by decide` proofs. -/
+@[expose]
 def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat τ.InternalReg τ.XBus τ.SimpleIO))
     (h : mk'.jmpLabelsInBounds flagsAndInstrs.unzip.snd := by decide) : Chip :=
   let m := flagsAndInstrs.size
@@ -351,7 +355,7 @@ public structure Board (n : ℕ) where
   simpleIOConns : Conns n (chips[·].τ.numSimpleIOPins)
   xBusConns : Conns n (chips[·].τ.numXBusPins)
 
-public def initialStates (b : Board n) : Vector Chip.State n :=
+public def Board.initialStates (b : Board n) : Vector Chip.State n :=
   b.chips.map fun { m, τ, .. } => .blank τ m
 
 namespace Chip
