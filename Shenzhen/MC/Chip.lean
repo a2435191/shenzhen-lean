@@ -52,18 +52,9 @@ deriving Repr, Inhabited
 -- TDOO maybe make this a typeclass
 /-- The type of some chip, so just the metadata associated with every kind of MCxxxx product.
   Doesn't include per-chip information like the instructions or state. -/
-public structure PartType where
-  numXBusPins : ℕ
-  numSimpleIOPins : ℕ
-  /-- The type of internal registers, i.e. which one we're talking about -/
-  InternalReg : Type
-  /-- The type of internal register state, i.e. all registers -/
-  InternalRegState : Type
-  /-- The internal state of a chip that has'nt executed anything -/
-  blank : InternalRegState
-  [inst : Registers InternalReg InternalRegState] -- TODO: rename these
-  [inst₂ : ToString InternalRegState] -- TODO: should this even go here
-
+public structure PartType (numXBusPins numSimpleIOPins : ℕ) (InternalReg InternalRegState : Type)
+    [Registers InternalReg InternalRegState] [ToString InternalRegState]
+where
 namespace PartType
 
 variable (τ : PartType)
