@@ -30,8 +30,14 @@ class Registers (ρ : outParam Type) (σ : Type) where
   modify : ρ → (Integer → Integer) → σ → σ := fun which f s =>
     let d := read which s
     write which (f d) s
-deriving instance Inhabited for Registers -- TODO create manual instance or get this warning to go away
-attribute [reducible] instInhabitedRegisters.default
+-- deriving Inhabited
+
+-- TODO `deriving` instance causes a warning on Lean 4.30
+instance [Inhabited ρ] : Inhabited (Registers ρ σ) where
+  default := {
+    acc := default,
+    read _ _ := 0,
+    write _ _ := id }
 
 /-- Represents the state during some instruction. While executing an instruction (possibly across multiple, in the case that we block on XBus),
   all fields stay the same.
