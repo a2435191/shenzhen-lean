@@ -25,7 +25,7 @@ def lightController : Board 4 :=
   let inputs : Array SimpleIOData := #[0, 0, 100, 0]
   let touch : Chip :=
     let flagsAndInstrs := inputs.flatMap fun (x : SimpleIOData) => #[
-      (.none, .mov (.int x) (.simpleIO 0)),
+      (.none, .mov (.int x) (.simpleIO (show Fin 2 from 0))), -- TODO fix this hack
       (.none, .slp (.int 1))]
     Chip.mk' (τ := Chip.MC4000) flagsAndInstrs (by simp [flagsAndInstrs])
   let chip₁ := MC4000.ofCompiled mcc(
