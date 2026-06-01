@@ -65,8 +65,6 @@ namespace PartType
   Fin numXBusPins
 @[reducible, expose] def SimpleIO [PartType numXBusPins numSimpleIOPins ρ σ] :=
   Fin numSimpleIOPins
-@[reducible, expose] def InstructionState [PartType numXBusPins numSimpleIOPins ρ σ] (m : ℕ) :=
-  MC.InstructionState σ m
 
 -- TODO: again, `deriving` instance doesn't work
 instance : Inhabited (PartType numXBusPins numSimpleIOPins ρ σ) where
@@ -139,14 +137,14 @@ def modifyAcc' [Registers ρ σ] (f : Integer → Integer → Integer) (other : 
 
 end InstructionState
 
--- TODO should this still be an explicit parameter?
 /-- `m` is the number of instructions on the chip -/
 public structure Chip (m : ℕ) (τ : PartType numXBusPins numSimpleIOPins ρ σ) where
   flags : Vector ConditionalFlag m
   instrs : Vector (Instruction m) m
 
 namespace Chip
-variable {τ : PartType} (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat τ.InternalReg τ.XBus τ.SimpleIO))
+variable {m : ℕ} [τ : PartType numXBusPins numSimpleIOPins ρ σ]
+    (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat ρ XBus SimpleIO))
 
 @[expose] abbrev mk'.jmpLabelsInBounds : Bool :=
   instrs.all fun
@@ -155,12 +153,12 @@ variable {τ : PartType} (flags : Array ConditionalFlag) (instrs : Array (_root_
 
 /-- A more convenient constructor for `Chip` with default `by decide` proofs. -/
 @[expose]
-def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat τ.InternalReg τ.XBus τ.SimpleIO))
-    (h : mk'.jmpLabelsInBounds flagsAndInstrs.unzip.snd := by decide) : Chip :=
+def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat ρ XBus SimpleIO))
+    (h : mk'.jmpLabelsInBounds flagsAndInstrs.unzip.snd := by decide) : Chip flagsAndInstrs.size τ :=
   let m := flagsAndInstrs.size
   match h' : flagsAndInstrs.unzip with
   | (flags, instrs) =>
-    let instrs' : Array (Instruction τ m) :=
+    let instrs' : Array (Instruction m) :=
       instrs.attach.map fun ⟨i, hi⟩ =>
         match i with
         | .jmp dst => .jmp <| Fin.mk dst <| by
@@ -174,7 +172,7 @@ def mk' (flagsAndInstrs : Array (ConditionalFlag × _root_.Instruction Nat τ.In
         | .dst x y => .dst x y
         | .teq x y => .teq x y | .tgt x y => .tgt x y | .tlt x y => .tlt x y | .tcp x y => .tcp x y
     have : flags = flagsAndInstrs.unzip.1 ∧ instrs = flagsAndInstrs.unzip.2 := ⟨h' ▸ rfl, h' ▸ rfl⟩
-    @Chip.mk m τ ⟨flags, by simp [this]; rfl⟩ ⟨instrs', by simp [instrs', this]; rfl⟩
+    Chip.mk (m := m) (τ := τ) ⟨flags, by simp [this]; rfl⟩ ⟨instrs', by simp [instrs', this]; rfl⟩
 
 /-- Advance the instruction pointer to the next enabled location (possibly wrapping around or,
   rarely, getting stuck if there are no enabled locations). Does not handle `jmp` instructions. -/
@@ -191,25 +189,26 @@ def advanceIP {m} (flags : Vector ConditionalFlag m)
 /-- `IOEffects τ m α` wraps `α` and mutable `InstructionState m` state inside `IOEffects`.
   Equal to `InstructionState m → IOEffects XBus SimpleIO (α × InstructionState m)`. -/
 @[reducible]
-private def Effects (τ : PartType) (m : ℕ) : Type → Type :=
-  StateT (τ.InstructionState m) (IOEffects τ.XBus τ.SimpleIO)
+private def Effects [PartType numXBusPins numSimpleIOPins ρ σ] (m : ℕ) : Type → Type :=
+  StateT (InstructionState σ m) (IOEffects XBus SimpleIO)
 
 /-- Calculate the effect of a single instruction on some `InstructionState`, excluding effects within a single time unit (i.e. changing state between CPU cycles/ticks).
   The effects include advancing the instruction pointer. -/
-def instructionEffects {m} (instr : Instruction τ m) (flags : Vector ConditionalFlag m)
-    : τ.InstructionState m → IOEffects τ.XBus τ.SimpleIO (τ.InstructionState m) :=
+def instructionEffects [PartType numXBusPins numSimpleIOPins ρ σ] {m}
+  (instr : Instruction m) (flags : Vector ConditionalFlag m)
+    : InstructionState σ m → IOEffects τ.XBus τ.SimpleIO (InstructionState σ m) :=
   let res := impl *> setNextIP
   fun s => res s <&> Prod.snd
 where
   /-- Here we tell ensure that `.pure` states (whether buried under other `IOEffects` or not)
     advance the instruction pointer. -/
-  setNextIP : Effects τ m Unit := do
+  setNextIP : Effects m Unit := do
     match instr with
     | .jmp ip' => modify (InstructionState.setIP ip')
     | _ => modify (advanceIP flags)
 
   /-- Handle everything except for updating the IP -/
-  impl : Effects τ m Unit := do
+  impl : Effects m Unit := do
     -- TODO: somewhere (maybe here) set the conditional flag corresponding to "@" after executing this instr
     match instr with
     -- Basic
@@ -219,7 +218,7 @@ where
       match dst with
       | .null => return
         -- TODO: add helper to `Effects` for this stuff
-      | .internal reg => modify fun s => { s with registers := τ.inst.write reg d s.registers }
+      | .internal reg => modify fun s => { s with registers := Registers.write reg d s.registers }
       | .simpleIO i =>
         let d := d.toSimpleIOData
         ret (.simpleIOWrite i d pure)
@@ -235,13 +234,13 @@ where
     | .add ri => doArith ri (· + ·)
     | .sub ri => doArith ri (· - ·)
     | .mul ri => doArith ri (· * ·)
-    | .not => modify (.modifyAcc (inst := τ.inst) Integer.not) -- TODO clunky
+    | .not => modify (.modifyAcc Integer.not) -- TODO clunky
     | .dgt ri => doArith ri Integer.getDigit -- set `acc` to the `ri`th digit of `acc`
     | .dst ri₁ ri₂ =>
       -- set the `ri₁`th digit of `acc` to `ri₂`
       let digit ← readRegOrInt ri₁
       let num ← readRegOrInt ri₂
-      modify (.modifyAcc (inst := τ.inst) (Integer.setDigit · digit num))
+      modify (.modifyAcc (Integer.setDigit · digit num))
     -- Test (comparison)
     | .teq ri₁ ri₂ => doCmp ri₁ ri₂ (· == ·)
     | .tgt ri₁ ri₂ => doCmp ri₁ ri₂ (· > ·)
@@ -252,29 +251,28 @@ where
       modify fun state => { state with cond := ⟨state.cond.hasRun, d₁ < d₂, d₁ > d₂⟩ }
 
   /-- Read an integer from `ri` (inside `Effects τ m`) -/
-  readRegOrInt (ri : RegOrInt τ) : Effects τ m Integer := do
+  readRegOrInt (ri : RegOrInt) : Effects m Integer := do
     match ri with
     | .int n => return n
     | .null => return 0
-    | .internal reg => return Registers.read (self := τ.inst) reg (←get).registers -- TODO clunky
+    | .internal reg => return Registers.read reg (←get).registers
     | .xBus x => do ret (.xBusRead x pure)
     | .simpleIO i => do ret (.simpleIORead i (pure ∘ SimpleIOData.toInteger))
 
   /-- Set the `acc` register to `f acc (←readRegOrInt ri)`. -/
-  doArith (ri : RegOrInt τ) (f : Integer → Integer → Integer) : Effects τ m Unit := do
+  doArith (ri : RegOrInt) (f : Integer → Integer → Integer) : Effects m Unit := do
     let d ← readRegOrInt ri
-    have := τ.inst -- TODO clunky
     modify (.modifyAcc' f d)
 
   /-- Run the comparison function `f` with `ri₁` and `ri₂` as inputs, then
     update the conditional flags accordingly. -/
-  doCmp (ri₁ ri₂ : RegOrInt τ) (f : Integer → Integer → Bool) : Effects τ m Unit := do
+  doCmp (ri₁ ri₂ : RegOrInt) (f : Integer → Integer → Bool) : Effects m Unit := do
     let d₁ ← readRegOrInt ri₁
     let d₂ ← readRegOrInt ri₂
     modify (.setCondIff (f d₁ d₂))
 
   /-- Return an `IOEffects` within the greater monad -/
-  ret {m α} (bfx : IOEffects τ.XBus τ.SimpleIO α) : Effects τ m α :=
+  ret {m α} (bfx : IOEffects τ.XBus τ.SimpleIO α) : Effects m α :=
     fun is => bfx <&> (·, is)
 
 /-- The state of an executing chip -/
