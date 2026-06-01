@@ -82,13 +82,15 @@ end PartType
 
   This and XBus writes (see below) are the only effects that can change the state of a chip mid-instruction. -/
 
-@[expose]
-abbrev Instruction (τ : PartType) (numInstr : Nat) :=
-  _root_.Instruction (Fin numInstr) τ.InternalReg τ.XBus τ.SimpleIO
+open PartType
 
 @[expose]
-abbrev RegOrInt (τ : PartType) :=
-  _root_.Instruction.RegOrInt τ.InternalReg τ.XBus τ.SimpleIO
+abbrev Instruction (numInstr : Nat) [inst : PartType numXBusPins numSimpleIOPins ρ σ] :=
+  _root_.Instruction (Fin numInstr) XBus SimpleIO
+
+@[expose]
+abbrev RegOrInt [inst : PartType numXBusPins numSimpleIOPins ρ σ] :=
+  _root_.Instruction.RegOrInt ρ XBus SimpleIO
 
 namespace InstructionState
 
@@ -103,9 +105,6 @@ instance [ToString σ] {m} : ToString (InstructionState σ m) where
     s!"[registers = {registers}; ip = {repr ip}; \
     cond = {condStr}; \
     hasRun = {c.hasRun.toList.zipIdx.filter Prod.fst})"
-
-instance {τ : PartType} [ToString τ.InternalRegState] : ToString (τ.InstructionState m) :=
-  inferInstance
 
 -- TODO
 -- instance : Inhabited (InstructionState m) :=
