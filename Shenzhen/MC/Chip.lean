@@ -86,11 +86,9 @@ end PartType
 
   This and XBus writes (see below) are the only effects that can change the state of a chip mid-instruction. -/
 
-@[expose]
 abbrev Instruction (τ : PartType) (numInstr : Nat) :=
   _root_.Instruction (Fin numInstr) τ.InternalReg τ.XBus τ.SimpleIO
 
-@[expose]
 abbrev RegOrInt (τ : PartType) :=
   _root_.Instruction.RegOrInt τ.InternalReg τ.XBus τ.SimpleIO
 
@@ -157,7 +155,7 @@ public structure Chip where
 namespace Chip
 variable {τ : PartType} (flags : Array ConditionalFlag) (instrs : Array (_root_.Instruction Nat τ.InternalReg τ.XBus τ.SimpleIO))
 
-@[expose] abbrev mk'.jmpLabelsInBounds : Bool :=
+abbrev mk'.jmpLabelsInBounds : Bool :=
   instrs.all fun
     | .jmp dst => dst < instrs.size
     | _ => true

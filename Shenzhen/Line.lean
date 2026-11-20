@@ -15,7 +15,6 @@ structure MCParser.Line where
 deriving Repr
 
 open MC.Chip.MC4000 in
-@[expose]
 abbrev MC4000.Line :=
   MCParser.Line String InternalReg XBus SimpleIO
 -- TODO generalize this over all `MC.Chip` instances and use a typeclass
