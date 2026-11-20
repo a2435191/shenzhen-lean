@@ -66,6 +66,7 @@ lemma negSucc_eq'' {n : Nat} : -[n+1] = -n.succ :=
 
 private lemma bmod_ofNat_le {k n : Nat} : Int.bmod k n ≤ k := by
   rw [bmod, ofNat_mod_ofNat]
+  dsimp only
   split
   case' isFalse =>
     apply Int.le_trans (Int.sub_le_self _ (natCast_nonneg n))

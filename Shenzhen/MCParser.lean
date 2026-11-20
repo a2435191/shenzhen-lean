@@ -49,11 +49,11 @@ def ParseM.throwErrorAt (stx : Syntax) (msg : MessageData) : ParseM α :=
   .error (.error stx msg)
 
 def parseInt (stx : Syntax) : ParseM Integer := do
-  let (isNeg, n) : Bool × Nat := ← match stx with
+  let (isNeg, n) : Bool × Nat := ← (match stx with
     | `(int| -$n) => return (true, n.getNat)
     | `(int| +$n)
     | `(int| $n:num) => return (false, n.getNat)
-    | _ => throwUnsupportedSyntax
+    | _ => throwUnsupportedSyntax)
   let m := if isNeg then -(n : Int) else n
   if h₁ : (m > 999) then
     .throwErrorAt stx "Number too large"
